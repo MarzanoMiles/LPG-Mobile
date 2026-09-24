@@ -3,9 +3,9 @@ package com.example.gastrack.ui.presentation
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -21,40 +21,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.gastrack.R
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.gastrack.ui.theme.*
+import com.example.gastrack.viewmodel.CartLineItem
+import com.example.gastrack.viewmodel.CartViewModel
 import java.util.Locale
 
 @Composable
 fun CartScreen(
     onBack: () -> Unit,
     onNavigateToCheckout: () -> Unit,
-    onContinueShopping: () -> Unit
+    onContinueShopping: () -> Unit,
+    cartViewModel: CartViewModel = viewModel()
 ) {
-    // Sample Cart Items for UI Demo
-    val cartItems = remember {
-        mutableStateListOf(
-            _root_ide_package_.com.example.gastrack.ui.presentation.CartItemData(
-                1,
-                "11kg Standard Refill",
-                950,
-                R.drawable.tank_11kg,
-                1
-            ),
-            _root_ide_package_.com.example.gastrack.ui.presentation.CartItemData(
-                2,
-                "2.7kg Camping Refill",
-                280,
-                R.drawable.tank_2_7kg,
-                2
-            )
-        )
-    }
+    val lineItems = cartViewModel.getLineItems()
 
-    val subtotal = cartItems.sumOf { it.price * it.quantity }
-    val deliveryCharge = if (cartItems.isEmpty()) 0 else 30
+    val subtotal = cartViewModel.subtotal()
+    val deliveryCharge = if (lineItems.isEmpty()) 0.0 else 30.0
     val totalAmount = subtotal + deliveryCharge
-    val totalItems = cartItems.sumOf { it.quantity }
+    val totalItems = cartViewModel.totalItems()
 
     Scaffold(
         containerColor = Color(0xFFFBFBFE),
@@ -87,7 +72,7 @@ fun CartScreen(
             }
         },
         bottomBar = {
-            if (cartItems.isNotEmpty()) {
+            if (lineItems.isNotEmpty()) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shadowElevation = 16.dp,
@@ -124,7 +109,7 @@ fun CartScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (cartItems.isEmpty()) {
+            if (lineItems.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(80.dp), tint = Color.LightGray)
@@ -142,20 +127,11 @@ fun CartScreen(
                     contentPadding = PaddingValues(24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    items(cartItems) { item ->
-                        _root_ide_package_.com.example.gastrack.ui.presentation.CartItemCard(
+                    items(lineItems, key = { it.productId }) { item ->
+                        CartItemCard(
                             item = item,
-                            onQuantityChange = { newQty ->
-                                val index = cartItems.indexOf(item)
-                                if (index != -1) {
-                                    if (newQty <= 0) {
-                                        cartItems.removeAt(index)
-                                    } else {
-                                        cartItems[index] = item.copy(quantity = newQty)
-                                    }
-                                }
-                            },
-                            onRemove = { cartItems.remove(item) }
+                            onQuantityChange = { newQty -> cartViewModel.setQuantity(item.productId, newQty) },
+                            onRemove = { cartViewModel.removeItem(item.productId) }
                         )
                     }
 
@@ -179,29 +155,10 @@ fun CartScreen(
                                     letterSpacing = 1.sp
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
-                                SummaryRow(
-                                    "Total Items",
-                                    totalItems.toString()
-                                )
-                                SummaryRow(
-                                    "Subtotal",
-                                    "₱${String.format(Locale.US, "%,.2f", subtotal.toDouble())}"
-                                )
-                                SummaryRow(
-                                    "Delivery Charge",
-                                    "₱${
-                                        String.format(
-                                            Locale.US,
-                                            "%,.2f",
-                                            deliveryCharge.toDouble()
-                                        )
-                                    }"
-                                )
-                                _root_ide_package_.com.example.gastrack.ui.presentation.SummaryRow(
-                                    "Discount",
-                                    "-₱0.00",
-                                    isDiscount = true
-                                )
+                                CartSummaryRow("Total Items", totalItems.toString())
+                                CartSummaryRow("Subtotal", "₱${String.format(Locale.US, "%,.2f", subtotal)}")
+                                CartSummaryRow("Delivery Charge", "₱${String.format(Locale.US, "%,.2f", deliveryCharge)}")
+                                CartSummaryRow("Discount", "-₱0.00", isDiscount = true)
 
                                 Spacer(modifier = Modifier.height(16.dp))
                                 HorizontalDivider(color = Color(0xFFF1F3F4))
@@ -214,7 +171,7 @@ fun CartScreen(
                                 ) {
                                     Text(text = "Total Amount", fontSize = 17.sp, fontWeight = FontWeight.Black, color = TextDark)
                                     Text(
-                                        text = "₱${String.format(Locale.US, "%,.2f", totalAmount.toDouble())}",
+                                        text = "₱${String.format(Locale.US, "%,.2f", totalAmount)}",
                                         fontSize = 22.sp,
                                         fontWeight = FontWeight.Black,
                                         color = GasTrackRed
@@ -232,7 +189,7 @@ fun CartScreen(
                             TextButton(onClick = onContinueShopping) {
                                 Text("Continue Shopping", color = GasTrackBlue, fontWeight = FontWeight.Bold)
                             }
-                            TextButton(onClick = { cartItems.clear() }) {
+                            TextButton(onClick = { cartViewModel.clear() }) {
                                 Text("Clear Cart", color = GasTrackRed, fontWeight = FontWeight.Bold)
                             }
                         }
@@ -245,7 +202,7 @@ fun CartScreen(
 
 @Composable
 fun CartItemCard(
-    item: com.example.gastrack.ui.presentation.CartItemData,
+    item: CartLineItem,
     onQuantityChange: (Int) -> Unit,
     onRemove: () -> Unit
 ) {
@@ -275,10 +232,15 @@ fun CartItemCard(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = item.name, fontWeight = FontWeight.Black, fontSize = 16.sp, color = TextDark)
-                    Text(text = "Unit Price: ₱${item.price}", fontSize = 13.sp, color = TextGray, fontWeight = FontWeight.Medium)
+                    Text(
+                        text = "Unit Price: ₱${String.format(Locale.US, "%,.2f", item.unitPrice)}",
+                        fontSize = 13.sp,
+                        color = TextGray,
+                        fontWeight = FontWeight.Medium
+                    )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Subtotal: ₱${String.format(Locale.US, "%,.2f", (item.price * item.quantity).toDouble())}",
+                        text = "Subtotal: ₱${String.format(Locale.US, "%,.2f", item.unitPrice * item.quantity)}",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         color = StaffPortalBlue
@@ -297,7 +259,7 @@ fun CartItemCard(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                _root_ide_package_.com.example.gastrack.ui.presentation.QuantitySelector(
+                QuantitySelector(
                     quantity = item.quantity,
                     onIncrement = { onQuantityChange(item.quantity + 1) },
                     onDecrement = { onQuantityChange(item.quantity - 1) }
@@ -307,16 +269,8 @@ fun CartItemCard(
     }
 }
 
-data class CartItemData(
-    val id: Int,
-    val name: String,
-    val price: Int,
-    val imageRes: Int,
-    var quantity: Int
-)
-
 @Composable
-fun SummaryRow(label: String, value: String, isDiscount: Boolean = false) {
+fun CartSummaryRow(label: String, value: String, isDiscount: Boolean = false) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween
@@ -334,8 +288,5 @@ fun SummaryRow(label: String, value: String, isDiscount: Boolean = false) {
 @Preview(showBackground = true)
 @Composable
 fun CartScreenPreview() {
-    _root_ide_package_.com.example.gastrack.ui.presentation.CartScreen(
-        onBack = {},
-        onNavigateToCheckout = {},
-        onContinueShopping = {})
+    CartScreen(onBack = {}, onNavigateToCheckout = {}, onContinueShopping = {})
 }

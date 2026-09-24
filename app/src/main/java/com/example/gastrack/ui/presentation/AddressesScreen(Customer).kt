@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Work
@@ -23,48 +24,41 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.gastrack.data.remote.dto.AddressDto
 import com.example.gastrack.ui.theme.*
+import com.example.gastrack.viewmodel.AddressUiState
+import com.example.gastrack.viewmodel.AddressViewModel
 
-data class AddressItem(
-    val id: Int,
-    val label: String,
-    val address: String,
-    val icon: ImageVector,
-    val isPrimary: Boolean = false
-)
+private fun iconForAddressType(type: String): ImageVector = when (type) {
+    "Home" -> Icons.Default.Home
+    "Work" -> Icons.Default.Work
+    else -> Icons.Default.LocationOn
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddressesScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    addressViewModel: AddressViewModel = viewModel()
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
-    val addresses = remember { mutableStateListOf(
-        _root_ide_package_.com.example.gastrack.ui.presentation.AddressItem(
-            1,
-            "Home",
-            "45 Mabini St, Brgy. Concepcion, Malabon City",
-            Icons.Default.Home,
-            true
-        ),
-        _root_ide_package_.com.example.gastrack.ui.presentation.AddressItem(
-            2,
-            "Work",
-            "GasTrack HQ, Bonifacio Global City, Taguig",
-            Icons.Default.Work
-        ),
-        _root_ide_package_.com.example.gastrack.ui.presentation.AddressItem(
-            3,
-            "Mom's House",
-            "12 Rizal Ave, Brgy. San Jose, Navotas",
-            Icons.Default.LocationOn
-        )
-    ) }
+    val uiState by addressViewModel.uiState.collectAsState()
+    val actionMessage by addressViewModel.actionMessage.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(actionMessage) {
+        actionMessage?.let {
+            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show()
+            addressViewModel.clearActionMessage()
+        }
+    }
 
     Scaffold(
         containerColor = Color(0xFFFBFBFE),
@@ -107,48 +101,75 @@ fun AddressesScreen(
             }
         }
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
-            contentPadding = PaddingValues(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            items(addresses) { address ->
-                _root_ide_package_.com.example.gastrack.ui.presentation.AddressCard(
-                    address = address,
-                    onSelect = {
-                        // Logic to set as primary
-                        val index = addresses.indexOf(address)
-                        if (index != -1) {
-                            val newList = addresses.map { it.copy(isPrimary = it.id == address.id) }
-                            addresses.clear()
-                            addresses.addAll(newList)
+        when (val state = uiState) {
+            is AddressUiState.Loading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(paddingValues),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = GasTrackBlue)
+                }
+            }
+            is AddressUiState.Error -> {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(paddingValues).padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = GasTrackRed, modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Couldn't load addresses", fontWeight = FontWeight.Black, fontSize = 18.sp, color = TextDark)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(state.message, fontSize = 13.sp, color = TextGray)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(
+                        onClick = { addressViewModel.loadAddresses() },
+                        colors = ButtonDefaults.buttonColors(containerColor = GasTrackBlue),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Retry", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            is AddressUiState.Success -> {
+                if (state.addresses.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(paddingValues).padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(56.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("No saved addresses yet", color = TextGray, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Tap + to add your first delivery address", color = TextGray, fontSize = 13.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues),
+                        contentPadding = PaddingValues(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(state.addresses, key = { it.AddressID }) { address ->
+                            AddressCard(
+                                address = address,
+                                onSelect = { addressViewModel.setPrimary(address.AddressID) },
+                                onDelete = { addressViewModel.deleteAddress(address.AddressID) }
+                            )
                         }
                     }
-                )
+                }
             }
         }
     }
 
     if (showAddDialog) {
-        _root_ide_package_.com.example.gastrack.ui.presentation.AddAddressDialog(
+        AddAddressDialog(
             onDismiss = { showAddDialog = false },
             onAdd = { label, location, type ->
-                val icon = when (type) {
-                    "Home" -> Icons.Default.Home
-                    "Work" -> Icons.Default.Work
-                    else -> Icons.Default.LocationOn
-                }
-                val newId = (addresses.maxOfOrNull { it.id } ?: 0) + 1
-                addresses.add(
-                    _root_ide_package_.com.example.gastrack.ui.presentation.AddressItem(
-                        newId,
-                        label,
-                        location,
-                        icon
-                    )
-                )
+                addressViewModel.addAddress(label = label, addressLine = location, addressType = type)
                 showAddDialog = false
             }
         )
@@ -156,7 +177,9 @@ fun AddressesScreen(
 }
 
 @Composable
-fun AddressCard(address: com.example.gastrack.ui.presentation.AddressItem, onSelect: () -> Unit) {
+fun AddressCard(address: AddressDto, onSelect: () -> Unit, onDelete: () -> Unit) {
+    val isPrimary = address.IsPrimary == 1
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -172,12 +195,12 @@ fun AddressCard(address: com.example.gastrack.ui.presentation.AddressItem, onSel
             Surface(
                 modifier = Modifier.size(48.dp),
                 shape = RoundedCornerShape(12.dp),
-                color = if (address.isPrimary) GasTrackRed.copy(alpha = 0.1f) else Color(0xFFF1F3F4)
+                color = if (isPrimary) GasTrackRed.copy(alpha = 0.1f) else Color(0xFFF1F3F4)
             ) {
                 Icon(
-                    imageVector = address.icon,
+                    imageVector = iconForAddressType(address.AddressType),
                     contentDescription = null,
-                    tint = if (address.isPrimary) GasTrackRed else StaffPortalBlue,
+                    tint = if (isPrimary) GasTrackRed else StaffPortalBlue,
                     modifier = Modifier.padding(12.dp)
                 )
             }
@@ -185,12 +208,12 @@ fun AddressCard(address: com.example.gastrack.ui.presentation.AddressItem, onSel
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = address.label,
+                        text = address.Label,
                         fontWeight = FontWeight.Black,
                         fontSize = 18.sp,
                         color = TextDark
                     )
-                    if (address.isPrimary) {
+                    if (isPrimary) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Surface(
                             color = GasTrackRed,
@@ -207,7 +230,7 @@ fun AddressCard(address: com.example.gastrack.ui.presentation.AddressItem, onSel
                     }
                 }
                 Text(
-                    text = address.address,
+                    text = address.AddressLine,
                     fontSize = 13.sp,
                     color = TextGray,
                     lineHeight = 18.sp,
@@ -215,10 +238,13 @@ fun AddressCard(address: com.example.gastrack.ui.presentation.AddressItem, onSel
                 )
             }
             RadioButton(
-                selected = address.isPrimary,
+                selected = isPrimary,
                 onClick = onSelect,
                 colors = RadioButtonDefaults.colors(selectedColor = GasTrackRed)
             )
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.ErrorOutline, contentDescription = "Delete", tint = Color.LightGray)
+            }
         }
     }
 }
@@ -367,5 +393,5 @@ fun AddAddressDialog(
 @Preview(showBackground = true)
 @Composable
 fun AddressesScreenPreview() {
-    _root_ide_package_.com.example.gastrack.ui.presentation.AddressesScreen(onBack = {})
+    AddressesScreen(onBack = {})
 }

@@ -8,12 +8,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.gastrack.ui.presentation.*
 import com.example.gastrack.ui.theme.GasTrackTheme
-import com.example.gastrack.ui.presentation.CheckoutScreen
+import com.example.gastrack.viewmodel.AuthViewModel
+import com.example.gastrack.viewmodel.CartViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,13 +36,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
+    val authViewModel: AuthViewModel = viewModel()
+    val cartViewModel: CartViewModel = viewModel()
 
     NavHost(
         navController = navController,
         startDestination = "startup"
     ) {
         composable("startup") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.StartUpScreen(
+            StartUpScreen(
                 onNavigateToCustomer = {
                     navController.navigate("login_customer")
                 }
@@ -49,7 +53,7 @@ fun AppNavigation() {
             }
         }
         composable("login_employee") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.LogInEmployeeScreen(
+            LogInEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 },
@@ -60,11 +64,12 @@ fun AppNavigation() {
                     navController.navigate("employee_menu") {
                         popUpTo("startup") { inclusive = true }
                     }
-                }
+                },
+                authViewModel = authViewModel
             )
         }
         composable("create_account_employee") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.CreateAccountEmployeeScreen(
+            CreateAccountEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 },
@@ -76,7 +81,7 @@ fun AppNavigation() {
             )
         }
         composable("employee_dashboard") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.DashboardEmployeeScreen(
+            DashboardEmployeeScreen(
                 onNavigateToMenu = {
                     navController.navigate("employee_menu")
                 },
@@ -92,7 +97,7 @@ fun AppNavigation() {
             )
         }
         composable("employee_inventory") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.InventoryEmployeeScreen(
+            InventoryEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 },
@@ -102,70 +107,70 @@ fun AppNavigation() {
             )
         }
         composable("employee_pos") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.POSEmployeeScreen(
+            POSEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("employee_sales") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.SalesEmployeeScreen(
+            SalesEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("employee_products") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.ProductsEmployeeScreen(
+            ProductsEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("employee_suppliers") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.SuppliersEmployeeScreen(
+            SuppliersEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("employee_data") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.DataModuleEmployeeScreen(
+            DataModuleEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("employee_reports") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.ReportsComplianceEmployeeScreen(
+            ReportsComplianceEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("employee_users") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.UsersEmployeeScreen(
+            UsersEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("employee_restocking") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.RestockingEmployeeScreen(
+            RestockingEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("employee_manage_stock") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.ManageStockScreen(
+            ManageStockScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("employee_orders") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.OrdersEmployeeScreen(
+            OrdersEmployeeScreen(
                 onBack = {
                     navController.popBackStack()
                 },
@@ -175,7 +180,7 @@ fun AppNavigation() {
             )
         }
         composable("employee_menu") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.MenuEmployeeScreen(
+            MenuEmployeeScreen(
                 onNavigateToDashboard = {
                     navController.navigate("employee_dashboard") {
                         popUpTo("employee_dashboard") { inclusive = true }
@@ -212,6 +217,7 @@ fun AppNavigation() {
                     navController.navigate("employee_reports")
                 },
                 onNavigateToLogout = {
+                    authViewModel.logout()
                     navController.navigate("startup") {
                         popUpTo(0) { inclusive = true }
                     }
@@ -219,7 +225,7 @@ fun AppNavigation() {
             )
         }
         composable("login_customer") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.LogInCustomerScreen(
+            LogInCustomerScreen(
                 onBack = {
                     navController.popBackStack()
                 },
@@ -230,11 +236,12 @@ fun AppNavigation() {
                     navController.navigate("customer_home") {
                         popUpTo("startup") { inclusive = true }
                     }
-                }
+                },
+                authViewModel = authViewModel
             )
         }
         composable("create_account_customer") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.CreateAccountCustomerScreen(
+            CreateAccountCustomerScreen(
                 onBack = {
                     navController.popBackStack()
                 },
@@ -242,11 +249,12 @@ fun AppNavigation() {
                     navController.navigate("customer_home") {
                         popUpTo("startup") { inclusive = true }
                     }
-                }
+                },
+                authViewModel = authViewModel
             )
         }
         composable("customer_home") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.CustomerHomeScreen(
+            CustomerHomeScreen(
                 onNavigateToOrder = {
                     navController.navigate("order_tab")
                 },
@@ -268,14 +276,14 @@ fun AppNavigation() {
             )
         }
         composable("notifications") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.NotificationScreen(
+            NotificationScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("menu") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.MenuScreen(
+            MenuScreen(
                 onNavigateToHome = {
                     navController.navigate("customer_home") {
                         popUpTo("customer_home") { inclusive = true }
@@ -313,6 +321,7 @@ fun AppNavigation() {
         composable("logout_customer") {
             LogOutCustomerScreen(
                 onLogout = {
+                    authViewModel.logout()
                     navController.navigate("startup") {
                         popUpTo(0) { inclusive = true }
                     }
@@ -323,7 +332,7 @@ fun AppNavigation() {
             )
         }
         composable("ar_loading") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.ARLoadingScreen(
+            ARLoadingScreen(
                 onLoadingComplete = {
                     navController.navigate("ar_choose") {
                         popUpTo("ar_loading") { inclusive = true }
@@ -332,14 +341,14 @@ fun AppNavigation() {
             )
         }
         composable("ar_choose") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.ARChooseScreen(
+            ARChooseScreen(
                 onContinue = {
                     navController.navigate("ar_scan")
                 }
             )
         }
         composable("ar_scan") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.ARScanScreen(
+            ARScanScreen(
                 onScanComplete = {
                     navController.navigate("order_tab") {
                         popUpTo("customer_home")
@@ -359,11 +368,12 @@ fun AppNavigation() {
                 },
                 onNavigateToMenu = {
                     navController.navigate("menu")
-                }
+                },
+                cartViewModel = cartViewModel
             )
         }
         composable("cart") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.CartScreen(
+            CartScreen(
                 onBack = {
                     navController.popBackStack()
                 },
@@ -372,7 +382,8 @@ fun AppNavigation() {
                 },
                 onContinueShopping = {
                     navController.popBackStack()
-                }
+                },
+                cartViewModel = cartViewModel
             )
         }
         composable("checkout") {
@@ -381,39 +392,40 @@ fun AppNavigation() {
                     navController.popBackStack()
                 },
                 onPlaceOrder = {
-                    // Handle Order Placement
+                    // Handled inside CheckoutScreen via checkoutViewModel; cart is cleared there too.
                 },
                 onNavigateToTracking = {
                     navController.navigate("map_tracking")
                 },
                 onNavigateToAddresses = {
                     navController.navigate("addresses")
-                }
+                },
+                cartViewModel = cartViewModel
             )
         }
         composable("map_tracking") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.MapTrackingScreen(
+            MapTrackingScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("profile") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.ProfileScreen(
+            ProfileScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("order_history") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.OrderHistoryScreen(
+            OrderHistoryScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("addresses") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.AddressesScreen(
+            AddressesScreen(
                 onBack = {
                     navController.popBackStack()
                 }
@@ -427,21 +439,21 @@ fun AppNavigation() {
             )
         }
         composable("help_center") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.HelpCenterScreen(
+            HelpCenterScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("about") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.AboutScreen(
+            AboutScreen(
                 onBack = {
                     navController.popBackStack()
                 }
             )
         }
         composable("privacy_policy") {
-            _root_ide_package_.com.example.gastrack.ui.presentation.PrivacyPolicyScreen(
+            PrivacyPolicyScreen(
                 onBack = {
                     navController.popBackStack()
                 }

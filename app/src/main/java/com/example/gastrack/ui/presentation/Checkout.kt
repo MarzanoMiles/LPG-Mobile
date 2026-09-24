@@ -4,18 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -24,22 +13,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -47,28 +22,65 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.gastrack.R
-import com.example.gastrack.ui.theme.ButtonOrange
-import com.example.gastrack.ui.theme.GasTrackBlue
-import com.example.gastrack.ui.theme.GasTrackRed
-import com.example.gastrack.ui.theme.StaffPortalBlue
-import com.example.gastrack.ui.theme.TextDark
-import com.example.gastrack.ui.theme.TextGray
+import com.example.gastrack.ui.theme.*
+import com.example.gastrack.viewmodel.AddressViewModel
+import com.example.gastrack.viewmodel.CartViewModel
+import com.example.gastrack.viewmodel.CheckoutUiState
+import com.example.gastrack.viewmodel.CheckoutViewModel
+import java.util.Locale
 
 @Composable
 fun CheckoutScreen(
     onBack: () -> Unit,
     onPlaceOrder: () -> Unit,
     onNavigateToTracking: () -> Unit,
-    onNavigateToAddresses: () -> Unit = {}
+    onNavigateToAddresses: () -> Unit = {},
+    cartViewModel: CartViewModel = viewModel(),
+    checkoutViewModel: CheckoutViewModel = viewModel(),
+    addressViewModel: AddressViewModel = viewModel()
 ) {
     var selectedPayment by remember { mutableStateOf("GCash") }
     var deliveryType by remember { mutableStateOf("Express") }
+
+    val lineItems = cartViewModel.getLineItems()
+    val subtotal = cartViewModel.subtotal()
+    val deliveryCharge = 30.0
+    val totalAmount = subtotal + deliveryCharge
+
+    val primaryAddress by addressViewModel.primaryAddress.collectAsState()
+
+    val checkoutState by checkoutViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+
+    // Refresh the primary address every time this screen becomes visible
+    // (e.g. returning from AddressesScreen after changing the selection)
+    LaunchedEffect(Unit) {
+        addressViewModel.loadPrimaryAddress()
+    }
+
+    LaunchedEffect(checkoutState) {
+        when (val state = checkoutState) {
+            is CheckoutUiState.Success -> {
+                checkoutViewModel.resetState()
+                cartViewModel.clear()
+                onPlaceOrder()
+                onNavigateToTracking()
+            }
+            is CheckoutUiState.Error -> {
+                android.widget.Toast.makeText(context, state.message, android.widget.Toast.LENGTH_LONG).show()
+                checkoutViewModel.resetState()
+            }
+            else -> {}
+        }
+    }
 
     Scaffold(
         containerColor = Color(0xFFFBFBFE),
@@ -113,23 +125,41 @@ fun CheckoutScreen(
                 ) {
                     Button(
                         onClick = {
-                            onPlaceOrder()
-                            onNavigateToTracking()
+                            checkoutViewModel.placeOrder(
+                                items = cartViewModel.quantities.toMap(),
+                                orderType = "Delivery",
+                                paymentMethod = selectedPayment,
+                                amountPaid = totalAmount,
+                                deliveryAddress = primaryAddress?.AddressLine ?: "No address on file",
+                                deliveryCharge = deliveryCharge
+                            )
                         },
+                        enabled = lineItems.isNotEmpty() && primaryAddress != null && checkoutState !is CheckoutUiState.Loading,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(60.dp)
                             .shadow(12.dp, RoundedCornerShape(20.dp)),
                         shape = RoundedCornerShape(20.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ButtonOrange),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ButtonOrange,
+                            disabledContainerColor = Color(0xFFE0E0E0)
+                        ),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                     ) {
-                        Text(
-                            text = "Place Order",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color.White
-                        )
+                        if (checkoutState is CheckoutUiState.Loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text(
+                                text = "Place Order",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color.White
+                            )
+                        }
                     }
                 }
             }
@@ -144,7 +174,7 @@ fun CheckoutScreen(
         ) {
             Spacer(modifier = Modifier.height(24.dp))
 
-            // --- Delivery Address ---
+            // --- Delivery Address (real, from backend) ---
             Text(
                 text = "DELIVERY ADDRESS",
                 fontSize = 11.sp,
@@ -175,13 +205,13 @@ fun CheckoutScreen(
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
                             Text(
-                                text = "Home",
+                                text = primaryAddress?.Label ?: "No saved address",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Black,
                                 color = TextDark
                             )
                             Text(
-                                text = "45 Mabini St, Brgy. Concepcion, Malabon City",
+                                text = primaryAddress?.AddressLine ?: "Add a delivery address to continue",
                                 fontSize = 13.sp,
                                 color = TextGray,
                                 lineHeight = 18.sp,
@@ -191,7 +221,7 @@ fun CheckoutScreen(
                     }
                     TextButton(onClick = onNavigateToAddresses) {
                         Text(
-                            text = "Change",
+                            text = if (primaryAddress == null) "Add" else "Change",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Black,
                             color = GasTrackRed
@@ -296,7 +326,7 @@ fun CheckoutScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // --- Order Summary ---
+            // --- Order Summary (real cart data) ---
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -305,14 +335,8 @@ fun CheckoutScreen(
                 shape = RoundedCornerShape(24.dp)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    SummaryRow(
-                        "Subtotal",
-                        "₱950.00"
-                    )
-                    SummaryRow(
-                        "Delivery Fee",
-                        "₱30.00"
-                    )
+                    SummaryRow("Subtotal", "₱${String.format(Locale.US, "%,.2f", subtotal)}")
+                    SummaryRow("Delivery Fee", "₱${String.format(Locale.US, "%,.2f", deliveryCharge)}")
                     Spacer(modifier = Modifier.height(16.dp))
                     HorizontalDivider(color = Color(0xFFF1F3F4))
                     Spacer(modifier = Modifier.height(16.dp))
@@ -328,7 +352,7 @@ fun CheckoutScreen(
                             color = TextDark
                         )
                         Text(
-                            text = "₱980.00",
+                            text = "₱${String.format(Locale.US, "%,.2f", totalAmount)}",
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Black,
                             color = GasTrackRed
@@ -434,8 +458,5 @@ fun SummaryRow(label: String, value: String) {
 @Preview(showBackground = true)
 @Composable
 fun CheckoutScreenPreview() {
-    CheckoutScreen(
-        onBack = {},
-        onPlaceOrder = {},
-        onNavigateToTracking = {})
+    CheckoutScreen(onBack = {}, onPlaceOrder = {}, onNavigateToTracking = {})
 }

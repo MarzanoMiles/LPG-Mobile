@@ -2,6 +2,7 @@ package com.example.gastrack.ui.presentation
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -36,19 +38,40 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.gastrack.R
 import com.example.gastrack.ui.theme.*
+import com.example.gastrack.viewmodel.AuthUiState
+import com.example.gastrack.viewmodel.AuthViewModel
 
 @Composable
 fun LogInCustomerScreen(
     onBack: () -> Unit = {},
     onNavigateToSignUp: () -> Unit,
-    onNavigateToHome: () -> Unit
+    onNavigateToHome: () -> Unit,
+    authViewModel: AuthViewModel = viewModel()
 ) {
     var emailOrPhone by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var showForgotPasswordDialog by remember { mutableStateOf(false) }
+
+    val uiState by authViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(uiState) {
+        when (val state = uiState) {
+            is AuthUiState.Success -> {
+                authViewModel.resetState()
+                onNavigateToHome()
+            }
+            is AuthUiState.Error -> {
+                android.widget.Toast.makeText(context, state.message, android.widget.Toast.LENGTH_LONG).show()
+                authViewModel.resetState()
+            }
+            else -> {}
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -229,8 +252,8 @@ fun LogInCustomerScreen(
 
             // --- Log In Button (Modern Premium Pill) ---
             Button(
-                enabled = emailOrPhone.isNotEmpty() && password.isNotEmpty(),
-                onClick = onNavigateToHome,
+                enabled = emailOrPhone.isNotEmpty() && password.isNotEmpty() && uiState !is AuthUiState.Loading,
+                onClick = { authViewModel.loginCustomer(emailOrPhone, password) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -246,21 +269,29 @@ fun LogInCustomerScreen(
                     disabledElevation = 0.dp
                 )
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = "Log In",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Black
+                if (uiState is AuthUiState.Loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Log In",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
@@ -289,9 +320,7 @@ fun LogInCustomerScreen(
     }
 
     if (showForgotPasswordDialog) {
-        _root_ide_package_.com.example.gastrack.ui.presentation.ForgotPasswordDialog(onDismiss = {
-            showForgotPasswordDialog = false
-        })
+        ForgotPasswordDialog(onDismiss = { showForgotPasswordDialog = false })
     }
 }
 
@@ -363,7 +392,5 @@ fun ForgotPasswordDialog(onDismiss: () -> Unit) {
 @Preview(showBackground = true)
 @Composable
 fun LogInCustomerScreenPreview() {
-    _root_ide_package_.com.example.gastrack.ui.presentation.LogInCustomerScreen(
-        onNavigateToSignUp = {},
-        onNavigateToHome = {})
+    LogInCustomerScreen(onNavigateToSignUp = {}, onNavigateToHome = {})
 }

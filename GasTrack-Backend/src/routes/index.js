@@ -10,6 +10,7 @@ router.use('/suppliers', require('./suppliers.routes'));
 router.use('/warehouses', require('./warehouses.routes'));
 router.use('/inventory', require('./inventory.routes'));
 router.use('/customers', require('./customers.routes'));
+router.use('/addresses', require('./addresses.routes'));
 router.use('/orders', require('./orders.routes'));
 router.use('/sales', require('./sales.routes'));
 router.use('/deliveries', require('./deliveries.routes'));

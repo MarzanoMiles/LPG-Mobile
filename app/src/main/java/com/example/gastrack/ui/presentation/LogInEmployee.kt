@@ -2,6 +2,7 @@ package com.example.gastrack.ui.presentation
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -23,9 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -36,19 +40,40 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.gastrack.R
 import com.example.gastrack.ui.theme.*
+import com.example.gastrack.viewmodel.AuthUiState
+import com.example.gastrack.viewmodel.AuthViewModel
 
 @Composable
 fun LogInEmployeeScreen(
     onBack: () -> Unit,
     onNavigateToSignUp: () -> Unit,
-    onNavigateToHome: () -> Unit
+    onNavigateToHome: () -> Unit,
+    authViewModel: AuthViewModel = viewModel()
 ) {
     var loginIdentifier by remember { mutableStateOf("") }
     var securityPin by remember { mutableStateOf("") }
     var pinVisible by remember { mutableStateOf(false) }
     var showForgotPinDialog by remember { mutableStateOf(false) }
+
+    val uiState by authViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(uiState) {
+        when (val state = uiState) {
+            is AuthUiState.Success -> {
+                authViewModel.resetState()
+                onNavigateToHome()
+            }
+            is AuthUiState.Error -> {
+                android.widget.Toast.makeText(context, state.message, android.widget.Toast.LENGTH_LONG).show()
+                authViewModel.resetState()
+            }
+            else -> {}
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -188,12 +213,12 @@ fun LogInEmployeeScreen(
                 )
                 OutlinedTextField(
                     value = securityPin,
-                    onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) securityPin = it },
+                    onValueChange = { securityPin = it },
                     modifier = Modifier
                         .fillMaxWidth()
                         .shadow(4.dp, RoundedCornerShape(16.dp))
                         .background(Color(0xFFFBFBFE), RoundedCornerShape(16.dp)),
-                    placeholder = { Text("● ● ● ●", color = Color.LightGray) },
+                    placeholder = { Text("Password", color = Color.LightGray) },
                     leadingIcon = {
                         Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = StaffPortalButtonBlue)
                     },
@@ -211,11 +236,10 @@ fun LogInEmployeeScreen(
                         unfocusedContainerColor = Color.Transparent,
                         focusedContainerColor = Color.Transparent
                     ),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
+                    singleLine = true
                 )
                 Text(
-                    text = "Forgot PIN?",
+                    text = "Forgot Password?",
                     modifier = Modifier
                         .align(Alignment.End)
                         .padding(top = 8.dp)
@@ -230,8 +254,8 @@ fun LogInEmployeeScreen(
 
             // --- Log In Button (Modern Premium Pill) ---
             Button(
-                enabled = loginIdentifier.isNotEmpty() && securityPin.isNotEmpty(),
-                onClick = onNavigateToHome,
+                enabled = loginIdentifier.isNotEmpty() && securityPin.isNotEmpty() && uiState !is AuthUiState.Loading,
+                onClick = { authViewModel.loginEmployee(loginIdentifier, securityPin) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -247,21 +271,29 @@ fun LogInEmployeeScreen(
                     disabledElevation = 0.dp
                 )
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = "Access Portal",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Black
+                if (uiState is AuthUiState.Loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Access Portal",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
@@ -290,9 +322,7 @@ fun LogInEmployeeScreen(
     }
 
     if (showForgotPinDialog) {
-        _root_ide_package_.com.example.gastrack.ui.presentation.ForgotPinDialog(onDismiss = {
-            showForgotPinDialog = false
-        })
+        ForgotPinDialog(onDismiss = { showForgotPinDialog = false })
     }
 }
 
@@ -364,8 +394,5 @@ fun ForgotPinDialog(onDismiss: () -> Unit) {
 @Preview(showBackground = true)
 @Composable
 fun LogInEmployeeScreenPreview() {
-    _root_ide_package_.com.example.gastrack.ui.presentation.LogInEmployeeScreen(
-        onBack = {},
-        onNavigateToSignUp = {},
-        onNavigateToHome = {})
+    LogInEmployeeScreen(onBack = {}, onNavigateToSignUp = {}, onNavigateToHome = {})
 }

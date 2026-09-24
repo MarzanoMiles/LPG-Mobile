@@ -1,9 +1,9 @@
 package com.example.gastrack.ui.presentation
 
-
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -31,15 +32,18 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.gastrack.R
 import com.example.gastrack.ui.theme.*
+import com.example.gastrack.viewmodel.AuthUiState
+import com.example.gastrack.viewmodel.AuthViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateAccountCustomerScreen(
     onBack: () -> Unit,
-    onAccountCreated: () -> Unit = {}
+    onAccountCreated: () -> Unit = {},
+    authViewModel: AuthViewModel = viewModel()
 ) {
     var firstName by remember { mutableStateOf("") }
     var lastName by remember { mutableStateOf("") }
@@ -60,7 +64,22 @@ fun CreateAccountCustomerScreen(
     var expandedType by remember { mutableStateOf(false) }
     val customerTypes = listOf("Residential", "Commercial")
 
-    var showOtpDialog by remember { mutableStateOf(false) }
+    val uiState by authViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(uiState) {
+        when (val state = uiState) {
+            is AuthUiState.Success -> {
+                authViewModel.resetState()
+                onAccountCreated()
+            }
+            is AuthUiState.Error -> {
+                android.widget.Toast.makeText(context, state.message, android.widget.Toast.LENGTH_LONG).show()
+                authViewModel.resetState()
+            }
+            else -> {}
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -162,7 +181,7 @@ fun CreateAccountCustomerScreen(
             // First Name & Last Name
             Row(modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.weight(1f)) {
-                    _root_ide_package_.com.example.gastrack.ui.presentation.CustomerInputField(
+                    CustomerInputField(
                         label = "FIRST NAME",
                         value = firstName,
                         onValueChange = { firstName = it },
@@ -171,7 +190,7 @@ fun CreateAccountCustomerScreen(
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Box(modifier = Modifier.weight(1f)) {
-                    _root_ide_package_.com.example.gastrack.ui.presentation.CustomerInputField(
+                    CustomerInputField(
                         label = "LAST NAME",
                         value = lastName,
                         onValueChange = { lastName = it },
@@ -183,7 +202,7 @@ fun CreateAccountCustomerScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             // Email Address
-            _root_ide_package_.com.example.gastrack.ui.presentation.CustomerInputField(
+            CustomerInputField(
                 label = "EMAIL ADDRESS",
                 value = email,
                 onValueChange = { email = it },
@@ -299,7 +318,7 @@ fun CreateAccountCustomerScreen(
             // Region & Province
             Row(modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.weight(1f)) {
-                    _root_ide_package_.com.example.gastrack.ui.presentation.CustomerInputField(
+                    CustomerInputField(
                         label = "REGION",
                         value = region,
                         onValueChange = { region = it },
@@ -308,7 +327,7 @@ fun CreateAccountCustomerScreen(
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Box(modifier = Modifier.weight(1f)) {
-                    _root_ide_package_.com.example.gastrack.ui.presentation.CustomerInputField(
+                    CustomerInputField(
                         label = "PROVINCE",
                         value = province,
                         onValueChange = { province = it },
@@ -322,7 +341,7 @@ fun CreateAccountCustomerScreen(
             // City & Barangay
             Row(modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.weight(1f)) {
-                    _root_ide_package_.com.example.gastrack.ui.presentation.CustomerInputField(
+                    CustomerInputField(
                         label = "CITY / MUNICIPALITY",
                         value = city,
                         onValueChange = { city = it },
@@ -331,7 +350,7 @@ fun CreateAccountCustomerScreen(
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Box(modifier = Modifier.weight(1f)) {
-                    _root_ide_package_.com.example.gastrack.ui.presentation.CustomerInputField(
+                    CustomerInputField(
                         label = "BARANGAY",
                         value = barangay,
                         onValueChange = { barangay = it },
@@ -343,7 +362,7 @@ fun CreateAccountCustomerScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // House No. / Street
-            _root_ide_package_.com.example.gastrack.ui.presentation.CustomerInputField(
+            CustomerInputField(
                 label = "HOUSE NO. / STREET / BUILDING",
                 value = houseNoStreet,
                 onValueChange = { houseNoStreet = it },
@@ -391,8 +410,18 @@ fun CreateAccountCustomerScreen(
 
             // Create Account Button
             Button(
-                enabled = firstName.isNotEmpty() && lastName.isNotEmpty() && email.isNotEmpty() && mobileNumber.isNotEmpty() && password.isNotEmpty() && city.isNotEmpty() && barangay.isNotEmpty(),
-                onClick = { showOtpDialog = true },
+                enabled = firstName.isNotEmpty() && lastName.isNotEmpty() && email.isNotEmpty() && mobileNumber.isNotEmpty() && password.isNotEmpty() && city.isNotEmpty() && barangay.isNotEmpty() && uiState !is AuthUiState.Loading,
+                onClick = {
+                    val fullAddress = "$houseNoStreet, $barangay, $city, $province, $region"
+                    authViewModel.registerCustomer(
+                        fullName = "$firstName $lastName",
+                        email = email,
+                        password = password,
+                        contactNo = "+63$mobileNumber",
+                        address = fullAddress,
+                        customerType = customerType
+                    )
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -409,115 +438,33 @@ fun CreateAccountCustomerScreen(
                     disabledElevation = 0.dp
                 )
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = "Send OTP via SMS",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Black
+                if (uiState is AuthUiState.Loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Create Account",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
-        }
-    }
-
-    if (showOtpDialog) {
-        _root_ide_package_.com.example.gastrack.ui.presentation.OtpVerificationDialog(
-            mobileNumber = mobileNumber,
-            onDismiss = { showOtpDialog = false },
-            onVerified = {
-                showOtpDialog = false
-                onAccountCreated()
-            }
-        )
-    }
-}
-
-@Composable
-fun OtpVerificationDialog(
-    mobileNumber: String,
-    onDismiss: () -> Unit,
-    onVerified: () -> Unit
-) {
-    var otpCode by remember { mutableStateOf("") }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = Color.White,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "Verify Number",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
-                    color = TextDark
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Enter the 6-digit code sent to\n+63 $mobileNumber",
-                    fontSize = 14.sp,
-                    color = TextGray,
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Medium
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                OutlinedTextField(
-                    value = otpCode,
-                    onValueChange = { if (it.length <= 6) otpCode = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("0 0 0 0 0 0", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
-                    textStyle = LocalTextStyle.current.copy(
-                        textAlign = TextAlign.Center,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 8.sp
-                    ),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedBorderColor = Color.LightGray.copy(alpha = 0.5f),
-                        focusedBorderColor = GasTrackBlue,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedContainerColor = Color.Transparent
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                Button(
-                    enabled = otpCode.length == 6,
-                    onClick = onVerified,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = StaffPortalBlue),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
-                ) {
-                    Text("Verify & Create Account", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-
-                TextButton(onClick = { /* Resend logic */ }) {
-                    Text("Resend Code", color = GasTrackRed, fontWeight = FontWeight.Bold)
-                }
-            }
         }
     }
 }
@@ -559,5 +506,5 @@ fun CustomerInputField(
 @Preview(showBackground = true)
 @Composable
 fun CreateAccountCustomerScreenPreview() {
-    _root_ide_package_.com.example.gastrack.ui.presentation.CreateAccountCustomerScreen(onBack = {})
+    CreateAccountCustomerScreen(onBack = {})
 }
