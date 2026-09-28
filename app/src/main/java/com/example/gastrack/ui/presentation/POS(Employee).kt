@@ -1,22 +1,10 @@
 package com.example.gastrack.ui.presentation
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -27,38 +15,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -69,39 +34,43 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.gastrack.R
-import com.example.gastrack.ui.theme.StaffPortalBlue
-import com.example.gastrack.ui.theme.StaffPortalButtonBlue
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.gastrack.data.remote.dto.CustomerDto
+import com.example.gastrack.data.remote.dto.InventoryDto
+import com.example.gastrack.ui.theme.*
+import com.example.gastrack.util.resolveProductImageRes
+import com.example.gastrack.viewmodel.*
 import java.util.Locale
 
 @Composable
 fun POSEmployeeScreen(
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    posViewModel: POSViewModel = viewModel()
 ) {
     var selectedTab by remember { mutableStateOf("Products") }
     var showPayPopup by remember { mutableStateOf(false) }
     var showOrderDetails by remember { mutableStateOf(false) }
     var showAddCustomerDialog by remember { mutableStateOf(false) }
+    var selectedCustomer by remember { mutableStateOf<CustomerDto?>(null) }
 
-    // Cart State: Map of Product ID to Quantity
-    val cart = remember { mutableStateMapOf<Int, Int>() }
-    var selectedCustomer by remember { mutableStateOf<POSCustomerData?>(null) }
+    val inventoryState by posViewModel.inventoryState.collectAsState()
+    val checkoutState by posViewModel.checkoutState.collectAsState()
+    val context = LocalContext.current
 
-    // Customers State
-    val customers = remember { mutableStateListOf(
-        POSCustomerData(1, "Juan Dela Cruz", "0917-123-4567", "45 Mabini St, Brgy. San Jose, Navotas City", "LAST ORDER: 2 DAYS AGO", "JD"),
-        POSCustomerData(2, "Maria Clara", "0918-987-6543", "12 Rizal Ave, Brgy. Concepcion, Malabon City", "LAST ORDER: 1 WEEK AGO", "MC"),
-        POSCustomerData(3, "Andres Bonifacio", "0917-123-4567", "8 Bonifacio St, Monumento, Caloocan City", "LAST ORDER: 1 MONTH AGO", "AB")
-    ) }
+    val totalAmount = posViewModel.cartTotal()
 
-    val products = listOf(
-        POSProductData(1, "11kg Standard", "Refill • Stock: 15", 950.0, R.drawable.tank_11kg, true),
-        POSProductData(2, "2.7kg Camping Cylinder", "Out of Stock", 280.0, R.drawable.tank_2_7kg, false),
-        POSProductData(3, "50kg Commercial Refill", "Out of Stock", 4500.0, R.drawable.tank_50kg, false)
-    )
-
-    val totalAmount = products.sumOf { product ->
-        (cart[product.id] ?: 0) * product.price
+    LaunchedEffect(checkoutState) {
+        when (val state = checkoutState) {
+            is POSCheckoutState.Success -> {
+                showPayPopup = false
+                showOrderDetails = true
+            }
+            is POSCheckoutState.Error -> {
+                android.widget.Toast.makeText(context, state.message, android.widget.Toast.LENGTH_LONG).show()
+                posViewModel.resetCheckoutState()
+            }
+            else -> {}
+        }
     }
 
     Scaffold(
@@ -159,7 +128,6 @@ fun POSEmployeeScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // --- Tabs ---
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
@@ -174,16 +142,36 @@ fun POSEmployeeScreen(
             // --- Tab Content ---
             Box(modifier = Modifier.weight(1f)) {
                 if (selectedTab == "Products") {
-                    POSProductsTab(
-                        products = products,
-                        cart = cart,
-                        onUpdateQuantity = { id, qty ->
-                            if (qty <= 0) cart.remove(id) else cart[id] = qty
+                    when (val state = inventoryState) {
+                        is POSInventoryUiState.Loading -> {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = StaffPortalButtonBlue)
+                            }
                         }
-                    )
+                        is POSInventoryUiState.Error -> {
+                            Column(
+                                modifier = Modifier.fillMaxSize().padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text("Couldn't load products: ${state.message}", color = GasTrackRed)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Button(onClick = { posViewModel.loadInventory() }, colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)) {
+                                    Text("Retry")
+                                }
+                            }
+                        }
+                        is POSInventoryUiState.Success -> {
+                            POSProductsTab(
+                                items = state.items,
+                                cart = posViewModel.cart,
+                                onUpdateQuantity = { id, qty -> posViewModel.setQuantity(id, qty) }
+                            )
+                        }
+                    }
                 } else {
                     POSCustomersTab(
-                        customers = customers,
+                        posViewModel = posViewModel,
                         selectedCustomer = selectedCustomer,
                         onCustomerSelected = { selectedCustomer = it },
                         onAddNewClick = { showAddCustomerDialog = true }
@@ -196,22 +184,22 @@ fun POSEmployeeScreen(
     if (showPayPopup) {
         PayPopup(
             totalAmount = totalAmount,
+            isLoading = checkoutState is POSCheckoutState.Loading,
             onDismiss = { showPayPopup = false },
-            onConfirm = {
-                showPayPopup = false
-                showOrderDetails = true
+            onConfirm = { paymentMethod, amountCollected ->
+                posViewModel.checkout(selectedCustomer, paymentMethod, amountCollected)
             }
         )
     }
 
     if (showOrderDetails) {
         OrderDetailsPopup(
-            cart = cart,
-            products = products,
+            posViewModel = posViewModel,
             customer = selectedCustomer,
             onDismiss = {
                 showOrderDetails = false
-                cart.clear()
+                selectedCustomer = null
+                posViewModel.clearCartAndResetCheckout()
             }
         )
     }
@@ -220,10 +208,9 @@ fun POSEmployeeScreen(
         AddCustomerDialog(
             onDismiss = { showAddCustomerDialog = false },
             onAdd = { name, phone, address ->
-                val newId = (customers.maxOfOrNull { it.id } ?: 0) + 1
-                val initials = name.split(" ").filter { it.isNotEmpty() }.take(2).map { it[0] }.joinToString("").uppercase()
-                customers.add(POSCustomerData(newId, name, phone, address, "NEWLY ADDED", initials))
-                showAddCustomerDialog = false
+                posViewModel.addCustomer(name, phone, address) {
+                    showAddCustomerDialog = false
+                }
             }
         )
     }
@@ -245,7 +232,7 @@ fun POSTabItem(text: String, isSelected: Boolean, onClick: () -> Unit) {
 
 @Composable
 fun POSProductsTab(
-    products: List<POSProductData>,
+    items: List<InventoryDto>,
     cart: Map<Int, Int>,
     onUpdateQuantity: (Int, Int) -> Unit
 ) {
@@ -257,24 +244,25 @@ fun POSProductsTab(
         item {
             Text(text = "Available Products", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, fontStyle = FontStyle.Italic)
         }
-        items(products) { product ->
+        items(items, key = { it.InventoryID }) { item ->
             POSProductCard(
-                product = product,
-                quantity = cart[product.id] ?: 0,
-                onUpdateQuantity = { onUpdateQuantity(product.id, it) }
+                item = item,
+                quantity = cart[item.ProductID] ?: 0,
+                onUpdateQuantity = { onUpdateQuantity(item.ProductID, it) }
             )
         }
     }
 }
 
-data class POSProductData(val id: Int, val name: String, val status: String, val price: Double, val imageRes: Int, val inStock: Boolean)
-
 @Composable
 fun POSProductCard(
-    product: POSProductData,
+    item: InventoryDto,
     quantity: Int,
     onUpdateQuantity: (Int) -> Unit
 ) {
+    val price = item.UnitPrice?.toDoubleOrNull() ?: 0.0
+    val inStock = item.StockOnHand > 0
+
     Card(
         modifier = Modifier.fillMaxWidth().shadow(2.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
@@ -285,32 +273,32 @@ fun POSProductCard(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Image(
-                painter = painterResource(id = product.imageRes),
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(id = resolveProductImageRes(item.ProductName)),
                 contentDescription = null,
                 modifier = Modifier.size(64.dp).background(Color(0xFFE3F2FD), RoundedCornerShape(8.dp)).padding(8.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = product.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(text = item.ProductName, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(
-                    text = product.status,
-                    color = if (product.inStock) Color.Gray else Color.Red,
+                    text = if (inStock) "Stock: ${item.StockOnHand} ${item.Unit}" else "Out of Stock",
+                    color = if (inStock) Color.Gray else Color.Red,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = String.format(Locale.US, "₱%,.2f", product.price),
+                    text = String.format(Locale.US, "₱%,.2f", price),
                     color = StaffPortalButtonBlue,
                     fontWeight = FontWeight.Black,
                     fontSize = 20.sp
                 )
             }
-            if (product.inStock) {
+            if (inStock) {
                 if (quantity > 0) {
                     POSQuantitySelector(
                         quantity = quantity,
-                        onUpdateQuantity = onUpdateQuantity
+                        onUpdateQuantity = { newQty -> onUpdateQuantity(minOf(newQty, item.StockOnHand)) }
                     )
                 } else {
                     Button(
@@ -400,22 +388,22 @@ fun POSBottomBar(totalAmount: Double, onCheckoutClick: () -> Unit) {
 
 @Composable
 fun POSCustomersTab(
-    customers: List<POSCustomerData>,
-    selectedCustomer: POSCustomerData?,
-    onCustomerSelected: (POSCustomerData?) -> Unit,
+    posViewModel: POSViewModel,
+    selectedCustomer: CustomerDto?,
+    onCustomerSelected: (CustomerDto?) -> Unit,
     onAddNewClick: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
-
-    val filteredCustomers = customers.filter {
-        it.name.contains(searchQuery, ignoreCase = true) || it.phone.contains(searchQuery)
-    }
+    val customerState by posViewModel.customerState.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
         Spacer(modifier = Modifier.height(16.dp))
         OutlinedTextField(
             value = searchQuery,
-            onValueChange = { searchQuery = it },
+            onValueChange = {
+                searchQuery = it
+                posViewModel.searchCustomers(it.ifBlank { null })
+            },
             modifier = Modifier.fillMaxWidth().height(52.dp),
             placeholder = { Text("Search name or mobile...", fontSize = 14.sp) },
             shape = RoundedCornerShape(26.dp),
@@ -447,22 +435,35 @@ fun POSCustomersTab(
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-            items(filteredCustomers) { customer ->
-                POSCustomerCard(
-                    customer = customer,
-                    isSelected = selectedCustomer?.id == customer.id,
-                    onSelect = { onCustomerSelected(customer) }
-                )
+
+        when (val state = customerState) {
+            is POSCustomerUiState.Loading -> {
+                Box(modifier = Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = StaffPortalBlue)
+                }
+            }
+            is POSCustomerUiState.Error -> {
+                Text("Couldn't load customers: ${state.message}", color = GasTrackRed, fontSize = 13.sp)
+            }
+            is POSCustomerUiState.Success -> {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+                    items(state.customers, key = { it.CustomerID }) { customer ->
+                        POSCustomerCard(
+                            customer = customer,
+                            isSelected = selectedCustomer?.CustomerID == customer.CustomerID,
+                            onSelect = { onCustomerSelected(customer) }
+                        )
+                    }
+                }
             }
         }
     }
 }
 
-data class POSCustomerData(val id: Int, val name: String, val phone: String, val address: String, val lastOrder: String, val initials: String)
-
 @Composable
-fun POSCustomerCard(customer: POSCustomerData, isSelected: Boolean, onSelect: () -> Unit) {
+fun POSCustomerCard(customer: CustomerDto, isSelected: Boolean, onSelect: () -> Unit) {
+    val initials = customer.CustomerName.split(" ").filter { it.isNotEmpty() }.take(2).map { it[0] }.joinToString("").uppercase()
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -476,26 +477,31 @@ fun POSCustomerCard(customer: POSCustomerData, isSelected: Boolean, onSelect: ()
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(modifier = Modifier.size(40.dp), shape = RoundedCornerShape(8.dp), color = Color(0xFFE8EAF6)) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text(text = customer.initials, color = StaffPortalBlue, fontWeight = FontWeight.Bold)
+                        Text(text = initials, color = StaffPortalBlue, fontWeight = FontWeight.Bold)
                     }
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = customer.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(text = customer.phone, color = Color.Gray, fontSize = 12.sp)
+                    Text(text = customer.CustomerName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(text = customer.ContactNo, color = Color.Gray, fontSize = 12.sp)
                 }
                 RadioButton(selected = isSelected, onClick = onSelect)
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Text(text = customer.address, fontSize = 12.sp, color = Color.Gray)
-            Text(text = customer.lastOrder, fontSize = 9.sp, color = if (isSelected) StaffPortalBlue else Color.LightGray, fontWeight = FontWeight.Bold)
+            Text(text = customer.Address, fontSize = 12.sp, color = Color.Gray)
         }
     }
 }
 
 @Composable
-fun PayPopup(totalAmount: Double, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+fun PayPopup(
+    totalAmount: Double,
+    isLoading: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (paymentMethod: String, amountCollected: Double) -> Unit
+) {
     var amountCollected by remember { mutableStateOf("") }
+    var paymentMethod by remember { mutableStateOf("Cash") }
     val collected = amountCollected.toDoubleOrNull() ?: 0.0
     val change = if (collected >= totalAmount) collected - totalAmount else 0.0
 
@@ -522,23 +528,21 @@ fun PayPopup(totalAmount: Double, onDismiss: () -> Unit, onConfirm: () -> Unit) 
                     )
                 }
                 PaymentDetailRow("Change Due:", String.format(Locale.US, "₱ %,.2f", change), color = if (collected < totalAmount) Color.Gray else Color.Red, isBold = true)
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    var saveReceipt by remember { mutableStateOf(true) }
-                    Checkbox(checked = saveReceipt, onCheckedChange = { saveReceipt = it })
-                    Text("Save Receipt", fontSize = 12.sp)
-                }
                 Spacer(modifier = Modifier.height(24.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Text("Cancel") }
                     Button(
-                        enabled = collected >= totalAmount && totalAmount > 0,
-                        onClick = onConfirm,
+                        enabled = collected >= totalAmount && totalAmount > 0 && !isLoading,
+                        onClick = { onConfirm(paymentMethod, collected) },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)
                     ) {
-                        Text("Okay")
+                        if (isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                        } else {
+                            Text("Confirm")
+                        }
                     }
                 }
             }
@@ -546,101 +550,108 @@ fun PayPopup(totalAmount: Double, onDismiss: () -> Unit, onConfirm: () -> Unit) 
     }
 }
 
-@Composable
-fun PaymentDetailRow(label: String, value: String, color: Color = Color.Black, isBold: Boolean = false) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(text = label, fontSize = 16.sp, fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal)
-        Text(text = value, fontSize = 16.sp, color = color, fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal)
-    }
-}
+
 
 @Composable
 fun OrderDetailsPopup(
-    cart: Map<Int, Int>,
-    products: List<POSProductData>,
-    customer: POSCustomerData?,
+    posViewModel: POSViewModel,
+    customer: CustomerDto?,
     onDismiss: () -> Unit
 ) {
+    val receiptState by posViewModel.receiptState.collectAsState()
+
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(shape = RoundedCornerShape(16.dp), color = Color.White, modifier = Modifier.fillMaxWidth(0.9f)) {
+        Surface(shape = RoundedCornerShape(16.dp), color = Color.White, modifier = Modifier.fillMaxWidth(0.92f)) {
             Column(
                 modifier = Modifier
                     .padding(20.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                Text("Order Details", fontSize = 22.sp, fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)
-                Spacer(modifier = Modifier.height(16.dp))
-
-                DetailValueRow("Order ID:", "O-001")
-                DetailValueRow("Order Type:", if (customer == null) "Walk-in" else "Delivery")
-                DetailValueRow("Date:", "01/01/2026 2:14:05 PM")
-                DetailValueRow("Order Status:", "Completed")
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Table
-                Column(modifier = Modifier.fillMaxWidth().border(1.dp, Color.LightGray)) {
-                    Row(modifier = Modifier.fillMaxWidth().background(Color(0xFFE8EAF6)).padding(8.dp)) {
-                        Text("Product Name", modifier = Modifier.weight(0.4f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Text("Qty", modifier = Modifier.weight(0.1f), fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                        Text("Unit Price", modifier = Modifier.weight(0.25f), fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
-                        Text("Subtotal", modifier = Modifier.weight(0.25f), fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
-                    }
-                    var subtotal = 0.0
-                    var itemCount = 0
-                    products.filter { cart.containsKey(it.id) }.forEach { product ->
-                        val qty = cart[product.id] ?: 0
-                        val lineTotal = qty * product.price
-                        subtotal += lineTotal
-                        itemCount += qty
-                        Row(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-                            Text(product.name, modifier = Modifier.weight(0.4f), fontSize = 10.sp)
-                            Text(qty.toString(), modifier = Modifier.weight(0.1f), fontSize = 10.sp, textAlign = TextAlign.Center)
-                            Text(String.format(Locale.US, "₱%,.2f", product.price), modifier = Modifier.weight(0.25f), fontSize = 10.sp, textAlign = TextAlign.End)
-                            Text(String.format(Locale.US, "₱%,.2f", lineTotal), modifier = Modifier.weight(0.25f), fontSize = 10.sp, textAlign = TextAlign.End)
+                when (val state = receiptState) {
+                    is ReceiptUiState.Loading, ReceiptUiState.Idle -> {
+                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = StaffPortalButtonBlue)
                         }
                     }
-                }
+                    is ReceiptUiState.Error -> {
+                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = GasTrackRed, modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Sale completed, but couldn't load receipt", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(state.message, fontSize = 12.sp, color = Color.Gray)
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)) {
+                            Text("Done")
+                        }
+                    }
+                    is ReceiptUiState.Success -> {
+                        val detail = state.detail
 
-                Spacer(modifier = Modifier.height(16.dp))
-                DetailValueRow("Total Items:", cart.values.sum().toString())
-                DetailValueRow("Subtotal:", String.format(Locale.US, "₱ %,.2f", cart.entries.sumOf { entry -> (products.find { it.id == entry.key }?.price ?: 0.0) * entry.value }))
-                DetailValueRow("Delivery:", "₱ 0.00")
-                DetailValueRow("Total Amount:", String.format(Locale.US, "₱ %,.2f", cart.entries.sumOf { entry -> (products.find { it.id == entry.key }?.price ?: 0.0) * entry.value }), isBold = true)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(32.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Sale Completed", fontSize = 20.sp, fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)
+                        }
 
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Customer Details", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Text("Name: ${customer?.name ?: "Walk-in"}", fontSize = 12.sp)
-                if (customer != null) {
-                    Text("Phone: ${customer.phone}", fontSize = 12.sp)
-                    Text("Address: ${customer.address}", fontSize = 12.sp)
-                }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        DetailValueRow("Sale No:", detail.SaleNo)
+                        DetailValueRow("Date:", detail.SaleDate.take(19).replace("T", " "))
+                        DetailValueRow("Customer:", customer?.CustomerName ?: "Walk-in Customer")
+                        detail.payments.firstOrNull()?.let {
+                            DetailValueRow("Payment Method:", it.PaymentMethod)
+                        }
 
-                Spacer(modifier = Modifier.height(16.dp))
-                DetailValueRow("Payment ID:", "PM-001")
-                DetailValueRow("Payment Method:", "Cash")
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Items", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)
-                ) {
-                    Text("Close & Print Receipt")
+                        Column(modifier = Modifier.fillMaxWidth().border(1.dp, Color.LightGray)) {
+                            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFFE8EAF6)).padding(8.dp)) {
+                                Text("Product", modifier = Modifier.weight(0.4f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text("Qty", modifier = Modifier.weight(0.15f), fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                Text("Unit Price", modifier = Modifier.weight(0.225f), fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+                                Text("Subtotal", modifier = Modifier.weight(0.225f), fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+                            }
+                            detail.items.forEach { line ->
+                                Row(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+                                    Text(line.ProductName, modifier = Modifier.weight(0.4f), fontSize = 10.sp)
+                                    Text(line.Quantity.toString(), modifier = Modifier.weight(0.15f), fontSize = 10.sp, textAlign = TextAlign.Center)
+                                    Text(
+                                        String.format(Locale.US, "₱%,.2f", line.UnitPrice.toDoubleOrNull() ?: 0.0),
+                                        modifier = Modifier.weight(0.225f), fontSize = 10.sp, textAlign = TextAlign.End
+                                    )
+                                    Text(
+                                        String.format(Locale.US, "₱%,.2f", line.Subtotal.toDoubleOrNull() ?: 0.0),
+                                        modifier = Modifier.weight(0.225f), fontSize = 10.sp, textAlign = TextAlign.End
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        val discount = detail.SalesDiscount.toDoubleOrNull() ?: 0.0
+                        if (discount > 0) {
+                            DetailValueRow("Discount:", "-₱${String.format(Locale.US, "%,.2f", discount)}")
+                        }
+                        DetailValueRow("Total Amount:", "₱${String.format(Locale.US, "%,.2f", detail.TotalAmount.toDoubleOrNull() ?: 0.0)}", isBold = true)
+
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = onDismiss,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)
+                        ) {
+                            Text("Done")
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-@Composable
-fun DetailValueRow(label: String, value: String, isBold: Boolean = false) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(text = label, fontSize = 13.sp, fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal)
-        Text(text = value, fontSize = 13.sp, fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal)
-    }
-}
+
 
 @Composable
 fun AddCustomerDialog(

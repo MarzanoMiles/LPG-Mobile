@@ -10,11 +10,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -24,15 +25,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.gastrack.data.remote.dto.LowStockItem
 import com.example.gastrack.ui.theme.*
+import com.example.gastrack.viewmodel.DashboardUiState
+import com.example.gastrack.viewmodel.DashboardViewModel
+import java.util.Locale
 
 @Composable
 fun DashboardEmployeeScreen(
     onNavigateToMenu: () -> Unit = {},
     onNavigateToInventory: () -> Unit = {},
     onNavigateToRestocking: () -> Unit = {},
-    onNavigateToNotifications: () -> Unit = {}
+    onNavigateToNotifications: () -> Unit = {},
+    dashboardViewModel: DashboardViewModel = viewModel()
 ) {
+    val uiState by dashboardViewModel.uiState.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -73,7 +82,7 @@ fun DashboardEmployeeScreen(
 
                 Column(modifier = Modifier.weight(1f).padding(start = 16.dp)) {
                     Text(
-                        text = "Good Morning, Rei",
+                        text = "Good Morning",
                         fontSize = 28.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color.White,
@@ -101,72 +110,136 @@ fun DashboardEmployeeScreen(
             }
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // --- Stats Row ---
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                _root_ide_package_.com.example.gastrack.ui.presentation.StatCard(
-                    label = "TODAY'S ORDERS",
-                    value = "42",
-                    accentColor = StaffPortalButtonBlue,
-                    modifier = Modifier.weight(1f)
-                )
-                _root_ide_package_.com.example.gastrack.ui.presentation.StatCard(
-                    label = "DELIVERED",
-                    value = "18",
-                    accentColor = Color(0xFF2E7D32),
-                    modifier = Modifier.weight(1f)
-                )
+        when (val state = uiState) {
+            is DashboardUiState.Loading -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = StaffPortalButtonBlue)
+                }
             }
+            is DashboardUiState.Error -> {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = GasTrackRed, modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Couldn't load dashboard", fontWeight = FontWeight.Black, fontSize = 18.sp, color = TextDark)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(state.message, fontSize = 13.sp, color = TextGray)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(
+                        onClick = { dashboardViewModel.loadDashboard() },
+                        colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Retry", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            is DashboardUiState.Success -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 24.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Spacer(modifier = Modifier.height(24.dp))
 
-            Spacer(modifier = Modifier.height(32.dp))
+                    // --- Stats Row (real data) ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        StatCard(
+                            label = "TODAY'S ORDERS",
+                            value = state.data.todaysOrders.toString(),
+                            accentColor = StaffPortalButtonBlue,
+                            modifier = Modifier.weight(1f)
+                        )
+                        StatCard(
+                            label = "DELIVERED",
+                            value = state.data.delivered.toString(),
+                            accentColor = Color(0xFF2E7D32),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
 
-            // --- Inventory Alerts ---
-            Text(
-                text = "Inventory Alerts",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = TextDark,
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            _root_ide_package_.com.example.gastrack.ui.presentation.InventoryAlertCard(
-                onRestockClick = onNavigateToInventory
-            )
+                    Spacer(modifier = Modifier.height(20.dp))
 
-            Spacer(modifier = Modifier.height(32.dp))
+                    StatCard(
+                        label = "TODAY'S SALES",
+                        value = "₱${String.format(Locale.US, "%,.2f", state.data.todaysSalesTotal)}",
+                        accentColor = ButtonOrange,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-            // --- Assigned Tasks ---
-            Text(
-                text = "Assigned Tasks",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = TextDark,
-                fontStyle = FontStyle.Italic,
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            _root_ide_package_.com.example.gastrack.ui.presentation.TaskItem(
-                title = "Review Restocking Order",
-                due = "Due today, 2:00 PM",
-                priority = "High",
-                priorityColor = Color.Red,
-                onClick = onNavigateToRestocking
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            _root_ide_package_.com.example.gastrack.ui.presentation.TaskItem(
-                title = "Check Del #4 Maintenance",
-                due = "Due tomorrow, 9:00 AM",
-                priority = "Normal",
-                priorityColor = StaffPortalButtonBlue
-            )
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    // --- Inventory Alerts (real low-stock list) ---
+                    Text(
+                        text = "Inventory Alerts",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextDark,
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    if (state.data.lowStock.isEmpty()) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color(0xFFE8F5E9),
+                            shape = RoundedCornerShape(20.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(20.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "All stock levels are healthy",
+                                    color = Color(0xFF2E7D32),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            state.data.lowStock.forEach { item ->
+                                InventoryAlertCard(item = item, onRestockClick = onNavigateToInventory)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    // --- Assigned Tasks (no backend table yet; static placeholder) ---
+                    Text(
+                        text = "Assigned Tasks",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextDark,
+                        fontStyle = FontStyle.Italic,
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    TaskItem(
+                        title = "Review Restocking Order",
+                        due = "Due today, 2:00 PM",
+                        priority = "High",
+                        priorityColor = Color.Red,
+                        onClick = onNavigateToRestocking
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    TaskItem(
+                        title = "Check Del #4 Maintenance",
+                        due = "Due tomorrow, 9:00 AM",
+                        priority = "Normal",
+                        priorityColor = StaffPortalButtonBlue
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+            }
         }
     }
 }
@@ -197,14 +270,14 @@ fun StatCard(label: String, value: String, accentColor: Color, modifier: Modifie
                 modifier = Modifier.padding(16.dp)
             ) {
                 Text(text = label, fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                Text(text = value, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black)
+                Text(text = value, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black)
             }
         }
     }
 }
 
 @Composable
-fun InventoryAlertCard(onRestockClick: () -> Unit) {
+fun InventoryAlertCard(item: LowStockItem, onRestockClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -239,13 +312,13 @@ fun InventoryAlertCard(onRestockClick: () -> Unit) {
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Low Stock: 11kg LPG",
+                    text = "Low Stock: ${item.ProductName}",
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 17.sp,
                     color = Color.Black
                 )
                 Text(
-                    text = "Only 15 cylinders left",
+                    text = "Only ${item.StockOnHand} left (reorder at ${item.ReorderLevel})",
                     fontSize = 13.sp,
                     color = Color.Gray,
                     fontWeight = FontWeight.Medium
@@ -324,5 +397,5 @@ fun TaskItem(title: String, due: String, priority: String, priorityColor: Color,
 @Preview(showBackground = true)
 @Composable
 fun DashboardEmployeeScreenPreview() {
-    _root_ide_package_.com.example.gastrack.ui.presentation.DashboardEmployeeScreen()
+    DashboardEmployeeScreen()
 }

@@ -414,6 +414,12 @@ fun AppNavigation() {
             ProfileScreen(
                 onBack = {
                     navController.popBackStack()
+                },
+                onLogout = {
+                    authViewModel.logout()
+                    navController.navigate("startup") {
+                        popUpTo(0) { inclusive = true }
+                    }
                 }
             )
         }

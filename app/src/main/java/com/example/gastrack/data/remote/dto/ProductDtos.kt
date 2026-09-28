@@ -14,5 +14,6 @@ data class ProductDto(
     val Status: String,
     val Category: String,
     val Brand: String,
-    val SupplierName: String
+    val SupplierName: String,
+    val SupplierLeadTimeDays: Int?
 )

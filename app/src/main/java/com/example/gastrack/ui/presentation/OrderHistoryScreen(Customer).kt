@@ -2,32 +2,17 @@ package com.example.gastrack.ui.presentation
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -38,31 +23,37 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.gastrack.R
-import com.example.gastrack.ui.theme.GasTrackBlue
-import com.example.gastrack.ui.theme.StaffPortalBlue
-import com.example.gastrack.ui.theme.TextDark
-import com.example.gastrack.ui.theme.TextGray
+import com.example.gastrack.data.remote.dto.OrderDto
+import com.example.gastrack.ui.theme.*
+import com.example.gastrack.viewmodel.OrderHistoryUiState
+import com.example.gastrack.viewmodel.OrderHistoryViewModel
+import java.text.SimpleDateFormat
+import java.util.Locale
 
-data class OrderItem(
-    val id: String,
-    val date: String,
-    val status: String,
-    val price: String,
-    val isDelivered: Boolean,
-    val itemCount: Int = 1
-)
+private fun formatOrderDate(raw: String): String {
+    return try {
+        val parser = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        val formatter = SimpleDateFormat("MMM dd, yyyy", Locale.US)
+        formatter.format(parser.parse(raw) ?: return raw)
+    } catch (e: Exception) {
+        raw
+    }
+}
+
+private fun formatCurrency(raw: String): String {
+    val amount = raw.toDoubleOrNull() ?: 0.0
+    return "₱${String.format(Locale.US, "%,.2f", amount)}"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderHistoryScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    orderHistoryViewModel: OrderHistoryViewModel = viewModel()
 ) {
-    val orders = listOf(
-        OrderItem("GT-98231", "Oct 24, 2023", "Delivered", "₱950.00", true, 1),
-        OrderItem("GT-97120", "Sep 12, 2023", "Delivered", "₱920.00", true, 2),
-        OrderItem("GT-95011", "Aug 05, 2023", "Cancelled", "₱920.00", false, 1)
-    )
+    val uiState by orderHistoryViewModel.uiState.collectAsState()
 
     Scaffold(
         containerColor = Color(0xFFFBFBFE),
@@ -95,18 +86,61 @@ fun OrderHistoryScreen(
             }
         }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(orders) { order ->
-                    OrderHistoryCard(order)
+        when (val state = uiState) {
+            is OrderHistoryUiState.Loading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(paddingValues),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = GasTrackBlue)
+                }
+            }
+            is OrderHistoryUiState.Error -> {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(paddingValues).padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = GasTrackRed, modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Couldn't load order history", fontWeight = FontWeight.Black, fontSize = 18.sp, color = TextDark)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(state.message, fontSize = 13.sp, color = TextGray)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(
+                        onClick = { orderHistoryViewModel.loadOrders() },
+                        colors = ButtonDefaults.buttonColors(containerColor = GasTrackBlue),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Retry", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            is OrderHistoryUiState.Success -> {
+                if (state.orders.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(paddingValues).padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(56.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("No orders yet", color = TextGray, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Your completed and cancelled orders will show up here", color = TextGray, fontSize = 13.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues),
+                        contentPadding = PaddingValues(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(state.orders, key = { it.OrderID }) { order ->
+                            OrderHistoryCard(order)
+                        }
+                    }
                 }
             }
         }
@@ -114,7 +148,9 @@ fun OrderHistoryScreen(
 }
 
 @Composable
-fun OrderHistoryCard(order: OrderItem) {
+fun OrderHistoryCard(order: OrderDto) {
+    val isDelivered = order.OrderStatus == "Completed"
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -130,25 +166,25 @@ fun OrderHistoryCard(order: OrderItem) {
             ) {
                 Column {
                     Text(
-                        text = "Order #${order.id}",
+                        text = "Order #${order.OrderNo}",
                         fontWeight = FontWeight.Black,
                         fontSize = 18.sp,
                         color = TextDark
                     )
                     Text(
-                        text = order.date,
+                        text = formatOrderDate(order.OrderDate),
                         fontSize = 14.sp,
                         color = TextGray,
                         fontWeight = FontWeight.Medium
                     )
                 }
                 Surface(
-                    color = if (order.isDelivered) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                    color = if (isDelivered) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = order.status.uppercase(),
-                        color = if (order.isDelivered) Color(0xFF2E7D32) else Color.Red,
+                        text = order.OrderStatus.uppercase(),
+                        color = if (isDelivered) Color(0xFF2E7D32) else Color.Red,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -179,7 +215,7 @@ fun OrderHistoryCard(order: OrderItem) {
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "${order.itemCount} ${if (order.itemCount == 1) "Item" else "Items"}",
+                        text = "${order.ItemCount} ${if (order.ItemCount == 1) "Item" else "Items"}",
                         fontWeight = FontWeight.Bold,
                         color = TextDark,
                         fontSize = 15.sp
@@ -188,7 +224,7 @@ fun OrderHistoryCard(order: OrderItem) {
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = order.price,
+                        text = formatCurrency(order.TotalAmount),
                         fontWeight = FontWeight.Black,
                         fontSize = 18.sp,
                         color = StaffPortalBlue

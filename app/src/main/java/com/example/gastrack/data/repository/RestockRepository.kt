@@ -1,33 +1,32 @@
 package com.example.gastrack.data.repository
 
 import com.example.gastrack.data.remote.RetrofitClient
-import com.example.gastrack.data.remote.dto.CheckoutRequest
-import com.example.gastrack.data.remote.dto.CheckoutResponse
-import com.example.gastrack.data.remote.dto.SaleDetailDto
+import com.example.gastrack.data.remote.dto.RestockGenerateResponse
+import com.example.gastrack.data.remote.dto.RestockRecommendationDto
 
-class SalesRepository {
+class RestockRepository {
     private val api = RetrofitClient.instance
 
-    suspend fun checkout(request: CheckoutRequest): ApiResult<CheckoutResponse> {
+    suspend fun getRecommendations(): ApiResult<List<RestockRecommendationDto>> {
         return try {
-            val response = api.checkout(request)
+            val response = api.getRestockRecommendations()
             if (response.isSuccessful && response.body() != null) {
                 ApiResult.Success(response.body()!!)
             } else {
-                ApiResult.Error(response.errorBody()?.string() ?: "Checkout failed")
+                ApiResult.Error(response.errorBody()?.string() ?: "Failed to load recommendations")
             }
         } catch (e: Exception) {
             ApiResult.Error(e.message ?: "Network error")
         }
     }
 
-    suspend fun getSaleDetail(saleId: Int): ApiResult<SaleDetailDto> {
+    suspend fun generateRecommendations(): ApiResult<RestockGenerateResponse> {
         return try {
-            val response = api.getSaleDetail(saleId)
+            val response = api.generateRestockRecommendations()
             if (response.isSuccessful && response.body() != null) {
                 ApiResult.Success(response.body()!!)
             } else {
-                ApiResult.Error(response.errorBody()?.string() ?: "Failed to load receipt")
+                ApiResult.Error(response.errorBody()?.string() ?: "Failed to generate recommendations")
             }
         } catch (e: Exception) {
             ApiResult.Error(e.message ?: "Network error")

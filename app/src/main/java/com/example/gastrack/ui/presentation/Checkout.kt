@@ -444,16 +444,7 @@ fun PaymentOption(
     }
 }
 
-@Composable
-fun SummaryRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(text = label, fontSize = 14.sp, color = TextGray, fontWeight = FontWeight.Medium)
-        Text(text = value, fontSize = 14.sp, fontWeight = FontWeight.Black, color = TextDark)
-    }
-}
+
 
 @Preview(showBackground = true)
 @Composable

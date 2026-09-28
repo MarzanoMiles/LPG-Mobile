@@ -5,19 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -26,33 +14,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -60,23 +31,33 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.gastrack.ui.theme.StaffPortalButtonBlue
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.gastrack.data.remote.dto.ProductDto
+import com.example.gastrack.data.remote.dto.PurchaseOrderDto
+import com.example.gastrack.data.remote.dto.SupplierDto
+import com.example.gastrack.ui.theme.*
+import com.example.gastrack.viewmodel.*
 import java.util.Locale
 
 @Composable
 fun SuppliersEmployeeScreen(
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    supplierViewModel: SupplierViewModel = viewModel()
 ) {
     var selectedTab by remember { mutableStateOf("Dashboard") }
     var showEditDialog by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
+    var supplierBeingEdited by remember { mutableStateOf<SupplierDto?>(null) }
 
-    val suppliers = remember { mutableStateListOf(
-        SupplierData("SL-001", "ABC Company", "#59 Kahoy St", "Active", "Juan", "0956478512354"),
-        SupplierData("SL-002", "XYZ Inc", "#59 Kahoy St", "Active", "Juan", "0956478512354"),
-        SupplierData("SL-003", "DEF Company", "#59 Kahoy St", "Inactive", "Juan", "0956478512354"),
-        SupplierData("SL-004", "NOV Inc", "#59 Kahoy St", "Active", "Juan", "0956478512354")
-    ) }
+    val actionMessage by supplierViewModel.actionMessage.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(actionMessage) {
+        actionMessage?.let {
+            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show()
+            supplierViewModel.clearActionMessage()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -122,8 +103,6 @@ fun SuppliersEmployeeScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // --- Tabs ---
-                // Based on reference images, there are 4 main views
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
@@ -141,9 +120,13 @@ fun SuppliersEmployeeScreen(
             Crossfade(targetState = selectedTab, label = "SupplierTabTransition") { tab ->
                 when (tab) {
                     "Dashboard" -> SuppliersDashboardTab(
-                        suppliers = suppliers,
-                        onEditClick = { showEditDialog = true },
-                        onAddClick = { showAddDialog = true }
+                        supplierViewModel = supplierViewModel,
+                        onEditClick = { supplier ->
+                            supplierBeingEdited = supplier
+                            showEditDialog = true
+                        },
+                        onAddClick = { showAddDialog = true },
+                        onDeleteClick = { supplier -> supplierViewModel.deactivateSupplier(supplier.SupplierID) }
                     )
                     "Products" -> SupplierProductsTab()
                     "Orders" -> SupplierPOTab()
@@ -153,19 +136,39 @@ fun SuppliersEmployeeScreen(
         }
     }
 
-    if (showEditDialog || showAddDialog) {
+    if (showEditDialog && supplierBeingEdited != null) {
+        val supplier = supplierBeingEdited!!
         SupplierEditDialog(
-            isEdit = showEditDialog,
+            isEdit = true,
+            existing = supplier,
             onDismiss = {
                 showEditDialog = false
-                showAddDialog = false
+                supplierBeingEdited = null
             },
-            onSave = { name, address ->
-                if (showAddDialog) {
-                    val newId = "SL-00${suppliers.size + 1}"
-                    suppliers.add(SupplierData(newId, name, address, "Active", "Juan", "0956478512354"))
-                }
+            onSave = { name, contactPerson, email, address, contact, leadTime ->
+                supplierViewModel.updateSupplier(
+                    id = supplier.SupplierID,
+                    name = name,
+                    contactPerson = contactPerson,
+                    email = email,
+                    address = address,
+                    contact = contact,
+                    leadTimeDays = leadTime,
+                    status = supplier.Status
+                )
                 showEditDialog = false
+                supplierBeingEdited = null
+            }
+        )
+    }
+
+    if (showAddDialog) {
+        SupplierEditDialog(
+            isEdit = false,
+            existing = null,
+            onDismiss = { showAddDialog = false },
+            onSave = { name, contactPerson, email, address, contact, leadTime ->
+                supplierViewModel.addSupplier(name, contactPerson, email, address, contact, leadTime)
                 showAddDialog = false
             }
         )
@@ -192,28 +195,57 @@ fun SupplierTabItem(text: String, isSelected: Boolean, onClick: () -> Unit) {
 
 @Composable
 fun SuppliersDashboardTab(
-    suppliers: List<SupplierData>,
-    onEditClick: () -> Unit,
-    onAddClick: () -> Unit
+    supplierViewModel: SupplierViewModel,
+    onEditClick: (SupplierDto) -> Unit,
+    onAddClick: () -> Unit,
+    onDeleteClick: (SupplierDto) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Filters Row
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterDropdown("All Performance", Modifier.weight(1f))
-            FilterDropdown("All Status", Modifier.weight(1f))
-            FilterDropdown("All Location", Modifier.weight(1f))
-        }
+    val uiState by supplierViewModel.uiState.collectAsState()
 
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            items(suppliers) { supplier ->
-                SupplierCard(supplier, onEditClick)
+    Column(modifier = Modifier.fillMaxSize()) {
+        when (val state = uiState) {
+            is SupplierUiState.Loading -> {
+                Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = StaffPortalButtonBlue)
+                }
+            }
+            is SupplierUiState.Error -> {
+                Column(
+                    modifier = Modifier.fillMaxSize().weight(1f).padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = GasTrackRed, modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Couldn't load suppliers", fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(state.message, fontSize = 13.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { supplierViewModel.loadSuppliers() }, colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)) {
+                        Text("Retry")
+                    }
+                }
+            }
+            is SupplierUiState.Success -> {
+                if (state.suppliers.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                        Text("No suppliers yet. Tap Add Supplier to create one.", color = Color.Gray)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(state.suppliers, key = { it.SupplierID }) { supplier ->
+                            SupplierCard(
+                                supplier = supplier,
+                                onEditClick = { onEditClick(supplier) },
+                                onDeleteClick = { onDeleteClick(supplier) }
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -232,27 +264,7 @@ fun SuppliersDashboardTab(
 }
 
 @Composable
-fun FilterDropdown(text: String, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.border(1.dp, Color.LightGray, RoundedCornerShape(8.dp)),
-        shape = RoundedCornerShape(8.dp),
-        color = Color.White
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(text, fontSize = 10.sp, color = Color.Black, maxLines = 1)
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(16.dp))
-        }
-    }
-}
-
-data class SupplierData(val id: String, val name: String, val address: String, val status: String, val contactPerson: String, val phone: String)
-
-@Composable
-fun SupplierCard(supplier: SupplierData, onEditClick: () -> Unit) {
+fun SupplierCard(supplier: SupplierDto, onEditClick: () -> Unit, onDeleteClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().shadow(2.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
@@ -262,17 +274,17 @@ fun SupplierCard(supplier: SupplierData, onEditClick: () -> Unit) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
-                    Text(text = supplier.id, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    Text(text = supplier.name, fontSize = 12.sp, color = Color.Gray)
+                    Text(text = "SUP-${supplier.SupplierID}", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                    Text(text = supplier.SupplierName, fontSize = 12.sp, color = Color.Gray)
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(text = supplier.address, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(text = "${supplier.LeadTimeDays} day lead time", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     Surface(
-                        color = if (supplier.status == "Active") Color(0xFF4CAF50) else Color(0xFFE57373),
+                        color = if (supplier.Status == "Active") Color(0xFF4CAF50) else Color(0xFFE57373),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = supplier.status,
+                            text = supplier.Status,
                             color = Color.White,
                             fontSize = 10.sp,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
@@ -292,12 +304,12 @@ fun SupplierCard(supplier: SupplierData, onEditClick: () -> Unit) {
                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Contact Person", fontSize = 10.sp, color = Color.Gray)
-                        Text(supplier.contactPerson, fontWeight = FontWeight.Bold)
+                        Text(supplier.ContactPerson ?: "—", fontWeight = FontWeight.Bold)
                     }
                     Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray))
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Phone", fontSize = 10.sp, color = Color.Gray)
-                        Text(supplier.phone, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text(supplier.Contact ?: "—", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             }
@@ -305,9 +317,8 @@ fun SupplierCard(supplier: SupplierData, onEditClick: () -> Unit) {
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                SupplierActionItem(Icons.Default.Description, "View", Color(0xFFFFD54F))
                 SupplierActionItem(Icons.Default.Edit, "Edit", Color(0xFF4CAF50), onClick = onEditClick)
-                SupplierActionItem(Icons.Default.Delete, "Delete", Color.Red)
+                SupplierActionItem(Icons.Default.Delete, "Remove", Color.Red, onClick = onDeleteClick)
             }
         }
     }
@@ -325,47 +336,63 @@ fun SupplierActionItem(icon: ImageVector, text: String, color: Color, onClick: (
     }
 }
 
+// Global product catalog, filterable by supplier in the backend if needed later.
 @Composable
-fun SupplierProductsTab() {
-    val products = listOf(
-        SupplierProductData("P-001", "Gas LPG 2.7kg", "2 Days", "Active", 243.0, 10),
-        SupplierProductData("P-002", "Gas LPG 7kg", "2 Days", "Active", 603.0, 10),
-        SupplierProductData("P-003", "Gas LPG 11kg", "2 Days", "Active", 921.0, 10),
-        SupplierProductData("P-009", "Gas LPG 22kg", "2 Days", "Active", 1726.0, 10),
-        SupplierProductData("P-010", "Gas LPG 50kg", "3 Days", "Active", 3964.0, 10)
-    )
+fun SupplierProductsTab(productViewModel: ProductViewModel = viewModel()) {
+    val uiState by productViewModel.uiState.collectAsState()
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        items(products) { product ->
-            SupplierProductCard(product)
+    when (val state = uiState) {
+        is ProductUiState.Loading -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = StaffPortalButtonBlue)
+            }
+        }
+        is ProductUiState.Error -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("Couldn't load products: ${state.message}", color = GasTrackRed)
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(onClick = { productViewModel.loadProducts() }, colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)) {
+                    Text("Retry")
+                }
+            }
+        }
+        is ProductUiState.Success -> {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                items(state.products, key = { it.ProductID }) { product ->
+                    SupplierProductCard(product)
+                }
+            }
         }
     }
 }
 
-data class SupplierProductData(val id: String, val name: String, val leadTime: String, val status: String, val cost: Double, val minQty: Int)
-
 @Composable
-fun SupplierProductCard(product: SupplierProductData) {
+fun SupplierProductCard(product: ProductDto) {
     Card(
         modifier = Modifier.fillMaxWidth().shadow(2.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
+        border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
-                    Text(text = product.id, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    Text(text = product.name, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "P-${product.ProductID}", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                    Text(text = product.ProductName, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "Supplied by ${product.SupplierName}", fontSize = 11.sp, color = Color.Gray)
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(text = product.leadTime, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Surface(color = Color(0xFF4CAF50), shape = RoundedCornerShape(8.dp)) {
-                        Text(text = product.status, color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), fontWeight = FontWeight.Bold)
+                    Text(text = "${product.SupplierLeadTimeDays ?: 0} Days", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Surface(color = if (product.Status == "Active") Color(0xFF4CAF50) else Color.Gray, shape = RoundedCornerShape(8.dp)) {
+                        Text(text = product.Status, color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -374,12 +401,59 @@ fun SupplierProductCard(product: SupplierProductData) {
                 Row(modifier = Modifier.padding(12.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Cost Price", fontSize = 10.sp, color = Color.Gray)
-                        Text(String.format(Locale.US, "₱ %,.2f", product.cost), fontWeight = FontWeight.Bold)
+                        Text(
+                            String.format(Locale.US, "₱ %,.2f", product.CostPrice.toDoubleOrNull() ?: 0.0),
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                     Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray))
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                        Text("Minimum Order Qty", fontSize = 10.sp, color = Color.Gray)
-                        Text(product.minQty.toString(), fontWeight = FontWeight.Bold)
+                        Text("Unit", fontSize = 10.sp, color = Color.Gray)
+                        Text(product.Unit, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Purchase orders across all suppliers, from purchaseorder table.
+@Composable
+fun SupplierPOTab(purchaseOrderViewModel: PurchaseOrderViewModel = viewModel()) {
+    val uiState by purchaseOrderViewModel.uiState.collectAsState()
+
+    when (val state = uiState) {
+        is PurchaseOrderUiState.Loading -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = StaffPortalButtonBlue)
+            }
+        }
+        is PurchaseOrderUiState.Error -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("Couldn't load purchase orders: ${state.message}", color = GasTrackRed)
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(onClick = { purchaseOrderViewModel.loadPurchaseOrders() }, colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)) {
+                    Text("Retry")
+                }
+            }
+        }
+        is PurchaseOrderUiState.Success -> {
+            if (state.orders.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No purchase orders yet", color = Color.Gray)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(state.orders, key = { it.PurchaseOrderID }) { po ->
+                        SupplierPOCard(po)
                     }
                 }
             }
@@ -388,44 +462,28 @@ fun SupplierProductCard(product: SupplierProductData) {
 }
 
 @Composable
-fun SupplierPOTab() {
-    val orders = listOf(
-        SupplierPOData("P-001", "01/05/2026", "SENT", 4860.0, 20, "01/07/2026"),
-        SupplierPOData("P-002", "01/05/2026", "SENT", 12060.0, 20, "01/07/2026"),
-        SupplierPOData("P-003", "01/05/2026", "SENT", 27640.0, 30, "01/07/2026"),
-        SupplierPOData("P-009", "01/05/2026", "SENT", 34520.0, 20, "01/08/2026"),
-        SupplierPOData("P-010", "01/05/2026", "SENT", 39640.0, 10, "01/12/2026")
-    )
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        items(orders) { po ->
-            SupplierPOCard(po)
-        }
-    }
-}
-
-data class SupplierPOData(val id: String, val date: String, val status: String, val total: Double, val qty: Int, val expected: String)
-
-@Composable
-fun SupplierPOCard(po: SupplierPOData) {
+fun SupplierPOCard(po: PurchaseOrderDto) {
     Card(
         modifier = Modifier.fillMaxWidth().shadow(2.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
+        border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
-                    Text(text = po.id, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    Text(text = po.date, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(text = po.PONo, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                    Text(text = po.SupplierName, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
-                Surface(color = Color(0xFF0D1B6D), shape = RoundedCornerShape(8.dp)) {
-                    Text(text = po.status, color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), fontWeight = FontWeight.Bold)
+                Surface(
+                    color = when (po.Status) {
+                        "Approved" -> Color(0xFF4CAF50)
+                        "Cancelled" -> Color.Red
+                        else -> Color(0xFF0D1B6D)
+                    },
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(text = po.Status, color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
@@ -433,17 +491,58 @@ fun SupplierPOCard(po: SupplierPOData) {
                 Row(modifier = Modifier.padding(12.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Total Amount", fontSize = 10.sp, color = Color.Gray)
-                        Text(String.format(Locale.US, "₱ %,.2f", po.total), fontWeight = FontWeight.Bold)
-                    }
-                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray))
-                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Total Quantity", fontSize = 10.sp, color = Color.Gray)
-                        Text(po.qty.toString(), fontWeight = FontWeight.Bold)
+                        Text(
+                            String.format(Locale.US, "₱ %,.2f", po.TotalAmount.toDoubleOrNull() ?: 0.0),
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                     Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray))
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                        Text("Expected Date", fontSize = 10.sp, color = Color.Gray)
-                        Text(po.expected, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text("Order Date", fontSize = 10.sp, color = Color.Gray)
+                        Text(po.OrderDate.take(10), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Note: your database has no separate "delivery" record for purchase orders —
+// approved POs are the closest real signal that stock was received, so we
+// reuse the same purchase order list here, filtered to Status = "Approved".
+@Composable
+fun SupplierDeliveryHistoryTab(purchaseOrderViewModel: PurchaseOrderViewModel = viewModel()) {
+    val uiState by purchaseOrderViewModel.uiState.collectAsState()
+
+    when (val state = uiState) {
+        is PurchaseOrderUiState.Loading -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = StaffPortalButtonBlue)
+            }
+        }
+        is PurchaseOrderUiState.Error -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("Couldn't load delivery history: ${state.message}", color = GasTrackRed)
+            }
+        }
+        is PurchaseOrderUiState.Success -> {
+            val delivered = state.orders.filter { it.Status == "Approved" }
+            if (delivered.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No deliveries received yet", color = Color.Gray)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(delivered, key = { it.PurchaseOrderID }) { po ->
+                        SupplierDeliveryCard(po)
                     }
                 }
             }
@@ -452,62 +551,34 @@ fun SupplierPOCard(po: SupplierPOData) {
 }
 
 @Composable
-fun SupplierDeliveryHistoryTab() {
-    val deliveries = listOf(
-        SupplierDeliveryData("SD-001", "P-001", "RECEIVED", "01/07/2026", 20, "U-001"),
-        SupplierDeliveryData("SD-002", "P-002", "RECEIVED", "01/07/2026", 20, "U-002"),
-        SupplierDeliveryData("SD-003", "P-003", "RECEIVED", "01/07/2026", 30, "U-002"),
-        SupplierDeliveryData("SD-004", "P-009", "RECEIVED", "01/08/2026", 20, "U-002"),
-        SupplierDeliveryData("SD-005", "P-010", "RECEIVED", "01/12/2026", 10, "U-001")
-    )
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        items(deliveries) { delivery ->
-            SupplierDeliveryCard(delivery)
-        }
-    }
-}
-
-data class SupplierDeliveryData(val id: String, val productId: String, val status: String, val date: String, val qty: Int, val receivedBy: String)
-
-@Composable
-fun SupplierDeliveryCard(delivery: SupplierDeliveryData) {
+fun SupplierDeliveryCard(po: PurchaseOrderDto) {
     Card(
         modifier = Modifier.fillMaxWidth().shadow(2.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
+        border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(text = delivery.id, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(text = delivery.productId, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    Surface(color = Color(0xFF4CAF50), shape = RoundedCornerShape(8.dp)) {
-                        Text(text = delivery.status, color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), fontWeight = FontWeight.Bold)
-                    }
+                Text(text = po.PONo, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                Surface(color = Color(0xFF4CAF50), shape = RoundedCornerShape(8.dp)) {
+                    Text(text = "RECEIVED", color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
             Surface(color = Color(0xFFF2F2F2), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                 Row(modifier = Modifier.padding(12.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Date Delivered", fontSize = 10.sp, color = Color.Gray)
-                        Text(delivery.date, fontWeight = FontWeight.Bold)
-                    }
-                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray))
-                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Total Quantity", fontSize = 10.sp, color = Color.Gray)
-                        Text(delivery.qty.toString(), fontWeight = FontWeight.Bold)
+                        Text("Supplier", fontSize = 10.sp, color = Color.Gray)
+                        Text(po.SupplierName, fontWeight = FontWeight.Bold)
                     }
                     Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray))
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                        Text("Received By", fontSize = 10.sp, color = Color.Gray)
-                        Text(delivery.receivedBy, fontWeight = FontWeight.Bold)
+                        Text("Total Value", fontSize = 10.sp, color = Color.Gray)
+                        Text(
+                            String.format(Locale.US, "₱ %,.2f", po.TotalAmount.toDoubleOrNull() ?: 0.0),
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -516,10 +587,22 @@ fun SupplierDeliveryCard(delivery: SupplierDeliveryData) {
 }
 
 @Composable
-fun SupplierEditDialog(isEdit: Boolean, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
+fun SupplierEditDialog(
+    isEdit: Boolean,
+    existing: SupplierDto?,
+    onDismiss: () -> Unit,
+    onSave: (name: String, contactPerson: String, email: String, address: String, contact: String, leadTimeDays: Int) -> Unit
+) {
+    var name by remember { mutableStateOf(existing?.SupplierName ?: "") }
+    var contactPerson by remember { mutableStateOf(existing?.ContactPerson ?: "") }
+    var email by remember { mutableStateOf(existing?.Email ?: "") }
+    var address by remember { mutableStateOf(existing?.Address ?: "") }
+    var contact by remember { mutableStateOf(existing?.Contact ?: "") }
+    var leadTimeDays by remember { mutableStateOf((existing?.LeadTimeDays ?: 0).toString()) }
+
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            modifier = Modifier.fillMaxWidth(0.9f).wrapContentHeight(),
+            modifier = Modifier.fillMaxWidth(0.92f).wrapContentHeight(),
             shape = RoundedCornerShape(16.dp),
             color = Color.White
         ) {
@@ -528,57 +611,60 @@ fun SupplierEditDialog(isEdit: Boolean, onDismiss: () -> Unit, onSave: (String, 
                     .padding(20.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                var name by remember { mutableStateOf("") }
-                var address by remember { mutableStateOf("") }
-
-                Text("Supplier Information", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    if (isEdit) "Edit Supplier" else "Add Supplier",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Text("BASIC INFORMATION", fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color.Gray)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Supplier Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SupplierDetailField("Supplier ID", "S-001", Modifier.weight(1f))
-                    Column(Modifier.weight(2f)) {
-                        Text("Full Name", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = { name = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("ABC Company", color = Color.LightGray) },
-                            shape = RoundedCornerShape(4.dp),
-                            textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
-                        )
-                    }
-                }
+                OutlinedTextField(
+                    value = contactPerson,
+                    onValueChange = { contactPerson = it },
+                    label = { Text("Contact Person") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SupplierDetailField("Supplier Type", "Manufacturer", Modifier.weight(1f))
-                    SupplierDetailField("Default Lead Times", "Enter Number", Modifier.weight(1f))
-                    SupplierDetailField("Status", "Active", Modifier.weight(1f))
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("CONTACT INFORMATION", fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color.Gray)
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email Address") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SupplierDetailField("Contact Person", "Juan Dela Cruz", Modifier.weight(1f))
-                    SupplierDetailField("Email Address", "abccompany@supplier.com", Modifier.weight(1f))
-                }
+                OutlinedTextField(
+                    value = contact,
+                    onValueChange = { contact = it },
+                    label = { Text("Phone Number") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SupplierDetailField("Phone Number", "09875412558", Modifier.weight(1f))
-                    Column(Modifier.weight(1f)) {
-                        Text("Address", fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                        OutlinedTextField(
-                            value = address,
-                            onValueChange = { address = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("146 Malabon City", color = Color.LightGray) },
-                            shape = RoundedCornerShape(4.dp),
-                            textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
-                        )
-                    }
-                }
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    label = { Text("Address") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = leadTimeDays,
+                    onValueChange = { input -> if (input.all { it.isDigit() }) leadTimeDays = input },
+                    label = { Text("Lead Time (days)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -592,7 +678,10 @@ fun SupplierEditDialog(isEdit: Boolean, onDismiss: () -> Unit, onSave: (String, 
                         Text("Cancel", color = Color.Black)
                     }
                     Button(
-                        onClick = { onSave(name, address) },
+                        enabled = name.isNotBlank(),
+                        onClick = {
+                            onSave(name, contactPerson, email, address, contact, leadTimeDays.toIntOrNull() ?: 0)
+                        },
                         modifier = Modifier.weight(1f).height(40.dp),
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)
@@ -601,16 +690,6 @@ fun SupplierEditDialog(isEdit: Boolean, onDismiss: () -> Unit, onSave: (String, 
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun SupplierDetailField(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(label, fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-        Box(modifier = Modifier.fillMaxWidth().border(1.dp, Color.LightGray, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 6.dp)) {
-            Text(value, fontSize = 11.sp, color = if (value.contains("Enter")) Color.LightGray else Color.Black)
         }
     }
 }

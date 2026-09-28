@@ -13,7 +13,7 @@ router.get('/', authenticate, requireEmployee, asyncHandler(async (req, res) => 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
   const [rows] = await pool.query(
-    `SELECT i.*, p.ProductName, p.Unit, p.ReorderLevel, w.WarehouseName
+    `SELECT i.*, p.ProductName, p.Unit, p.ReorderLevel, p.UnitPrice, w.WarehouseName
      FROM inventory i
      JOIN product p ON p.ProductID = i.ProductID
      JOIN warehouse w ON w.WarehouseID = i.WarehouseID
@@ -35,7 +35,6 @@ router.get('/low-stock', authenticate, requireEmployee, asyncHandler(async (req,
   res.json(rows);
 }));
 
-// Stock In / Stock Out / Adjustment — mirrors ManageStock(Employee).kt and Inventory(Employee).kt
 router.post('/transactions', authenticate, requireEmployee, asyncHandler(async (req, res) => {
   const { warehouseId, productId, transactionType, quantity, reason, referenceNo, remarks } = req.body;
   if (!['Stock In', 'Stock Out'].includes(transactionType)) {

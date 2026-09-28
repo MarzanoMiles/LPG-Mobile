@@ -1,33 +1,32 @@
 package com.example.gastrack.data.repository
 
 import com.example.gastrack.data.remote.RetrofitClient
-import com.example.gastrack.data.remote.dto.CheckoutRequest
-import com.example.gastrack.data.remote.dto.CheckoutResponse
-import com.example.gastrack.data.remote.dto.SaleDetailDto
+import com.example.gastrack.data.remote.dto.SalesListItemDto
+import com.example.gastrack.data.remote.dto.SalesStatsDto
 
-class SalesRepository {
+class SalesListRepository {
     private val api = RetrofitClient.instance
 
-    suspend fun checkout(request: CheckoutRequest): ApiResult<CheckoutResponse> {
+    suspend fun getSalesList(): ApiResult<List<SalesListItemDto>> {
         return try {
-            val response = api.checkout(request)
+            val response = api.getSalesList()
             if (response.isSuccessful && response.body() != null) {
                 ApiResult.Success(response.body()!!)
             } else {
-                ApiResult.Error(response.errorBody()?.string() ?: "Checkout failed")
+                ApiResult.Error(response.errorBody()?.string() ?: "Failed to load sales records")
             }
         } catch (e: Exception) {
             ApiResult.Error(e.message ?: "Network error")
         }
     }
 
-    suspend fun getSaleDetail(saleId: Int): ApiResult<SaleDetailDto> {
+    suspend fun getStats(): ApiResult<SalesStatsDto> {
         return try {
-            val response = api.getSaleDetail(saleId)
+            val response = api.getSalesStats()
             if (response.isSuccessful && response.body() != null) {
                 ApiResult.Success(response.body()!!)
             } else {
-                ApiResult.Error(response.errorBody()?.string() ?: "Failed to load receipt")
+                ApiResult.Error(response.errorBody()?.string() ?: "Failed to load sales stats")
             }
         } catch (e: Exception) {
             ApiResult.Error(e.message ?: "Network error")

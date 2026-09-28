@@ -15,8 +15,12 @@ router.get('/', authenticate, asyncHandler(async (req, res) => {
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
   const [rows] = await pool.query(
-    `SELECT o.*, c.CustomerName FROM \`order\` o JOIN customer c ON c.CustomerID = o.CustomerID
-     ${where} ORDER BY o.OrderDate DESC`,
+    `SELECT o.*, c.CustomerName,
+            (SELECT COUNT(*) FROM orderdetails od WHERE od.OrderID = o.OrderID) AS ItemCount
+     FROM \`order\` o
+     JOIN customer c ON c.CustomerID = o.CustomerID
+     ${where}
+     ORDER BY o.OrderDate DESC`,
     params
   );
   res.json(rows);

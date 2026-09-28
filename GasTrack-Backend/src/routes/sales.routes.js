@@ -11,6 +11,34 @@ function genNo(prefix) {
   return `${prefix}-${year}-${Date.now().toString().slice(-6)}${rand}`;
 }
 
+router.get('/stats', authenticate, asyncHandler(async (req, res) => {
+  const [[todayTotals]] = await pool.query(
+    `SELECT COALESCE(SUM(TotalAmount), 0) AS total, COUNT(*) AS count
+     FROM sales WHERE DATE(SaleDate) = CURDATE()`
+  );
+  const avgOrder = todayTotals.count > 0 ? todayTotals.total / todayTotals.count : 0;
+
+  const [peakHourRows] = await pool.query(
+    `SELECT HOUR(SaleDate) AS hr, COUNT(*) AS cnt
+     FROM sales WHERE DATE(SaleDate) = CURDATE()
+     GROUP BY HOUR(SaleDate) ORDER BY cnt DESC LIMIT 1`
+  );
+  let peakHourLabel = 'N/A';
+  if (peakHourRows[0]) {
+    const hr = peakHourRows[0].hr;
+    const period = hr >= 12 ? 'PM' : 'AM';
+    const displayHr = hr % 12 === 0 ? 12 : hr % 12;
+    peakHourLabel = `${displayHr}:00${period}`;
+  }
+
+  res.json({
+    todaysSalesTotal: todayTotals.total,
+    todaysTransactionCount: todayTotals.count,
+    averageOrderValue: avgOrder,
+    peakHourLabel,
+  });
+}));
+
 // Full checkout: creates order + orderdetails + sale + payment, deducts stock.
 // Used by both the customer OrderTab/Checkout flow and employee POS.
 router.post('/checkout', authenticate, asyncHandler(async (req, res) => {
@@ -27,7 +55,6 @@ router.post('/checkout', authenticate, asyncHandler(async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    // Price + stock check
     let subtotal = 0;
     const priced = [];
     for (const it of items) {

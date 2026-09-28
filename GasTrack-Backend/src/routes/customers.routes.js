@@ -18,6 +18,21 @@ router.get('/', authenticate, requireEmployee, asyncHandler(async (req, res) => 
   res.json(rows);
 }));
 
+// Finds (or creates once) a shared "Walk-in Customer" record for anonymous POS sales
+router.get('/walk-in', authenticate, requireEmployee, asyncHandler(async (req, res) => {
+  const [existing] = await pool.query(
+    `SELECT * FROM customer WHERE CustomerType = 'Walk-in' LIMIT 1`
+  );
+  if (existing[0]) return res.json(existing[0]);
+
+  const [result] = await pool.query(
+    `INSERT INTO customer (CustomerType, CustomerName, ContactNo, Address, Status)
+     VALUES ('Walk-in', 'Walk-in Customer', 'N/A', 'N/A', 'Active')`
+  );
+  const [created] = await pool.query(`SELECT * FROM customer WHERE CustomerID = ?`, [result.insertId]);
+  res.status(201).json(created[0]);
+}));
+
 router.post('/', authenticate, requireEmployee, asyncHandler(async (req, res) => {
   const { customerType, customerName, contactNo, address } = req.body;
   const [result] = await pool.query(

@@ -3,22 +3,8 @@ package com.example.gastrack.ui.presentation
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -27,67 +13,62 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.gastrack.ui.theme.StaffPortalBlue
-import com.example.gastrack.ui.theme.StaffPortalButtonBlue
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.gastrack.data.remote.dto.ActivityLogDto
+import com.example.gastrack.data.remote.dto.RoleDto
+import com.example.gastrack.data.remote.dto.UserListItemDto
+import com.example.gastrack.data.remote.dto.WarehouseDto
+import com.example.gastrack.ui.theme.*
+import com.example.gastrack.viewmodel.*
 
-data class UserItemData(
-    val id: String,
-    val role: String,
-    val branch: String,
-    val fullName: String,
+data class UserFormData(
+    val firstName: String,
+    val lastName: String,
     val email: String,
-    val status: String
-)
-
-data class ActivityLogEntry(
-    val id: String,
-    val role: String,
-    val branch: String,
-    val module: String,
-    val action: String,
-    val fullName: String,
-    val email: String,
-    val timestamp: String
+    val password: String,
+    val roleId: Int,
+    val warehouseId: Int?,
+    val isActive: Boolean
 )
 
 @Composable
 fun UsersEmployeeScreen(
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    userManagementViewModel: UserManagementViewModel = viewModel()
 ) {
     var selectedTab by remember { mutableStateOf("Users") }
     var showAddUserDialog by remember { mutableStateOf(false) }
+    var editingUser by remember { mutableStateOf<UserListItemDto?>(null) }
+
+    val roles by userManagementViewModel.roles.collectAsState()
+    val warehouses by userManagementViewModel.warehouses.collectAsState()
+    val actionMessage by userManagementViewModel.actionMessage.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(actionMessage) {
+        actionMessage?.let {
+            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show()
+            userManagementViewModel.clearActionMessage()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -133,7 +114,6 @@ fun UsersEmployeeScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // --- Tabs ---
                 Surface(
                     modifier = Modifier
                         .padding(horizontal = 24.dp)
@@ -156,12 +136,7 @@ fun UsersEmployeeScreen(
                                 .clickable { selectedTab = "Users" },
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "Users",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
+                            Text(text = "Users", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                         Box(
                             modifier = Modifier
@@ -175,12 +150,7 @@ fun UsersEmployeeScreen(
                                 .clickable { selectedTab = "Activity Log" },
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "Activity Log",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
+                            Text(text = "Activity Log", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
                     }
                 }
@@ -191,35 +161,122 @@ fun UsersEmployeeScreen(
         Box(modifier = Modifier.weight(1f)) {
             Crossfade(targetState = selectedTab, label = "UserTabTransition") { tab ->
                 when (tab) {
-                    "Users" -> UsersListTab(onAddClick = { showAddUserDialog = true })
-                    "Activity Log" -> ActivityLogTab()
+                    "Users" -> UsersListTab(
+                        userManagementViewModel = userManagementViewModel,
+                        onAddClick = { showAddUserDialog = true },
+                        onEditClick = { user -> editingUser = user }
+                    )
+                    "Activity Log" -> ActivityLogTab(userManagementViewModel = userManagementViewModel)
                 }
             }
         }
     }
 
+    // --- Create ---
     if (showAddUserDialog) {
-        UserEditDialog(onDismiss = { showAddUserDialog = false })
+        UserFormDialog(
+            existing = null,
+            roles = roles,
+            warehouses = warehouses,
+            onDismiss = { showAddUserDialog = false },
+            onSave = { form ->
+                userManagementViewModel.addUser(
+                    firstName = form.firstName,
+                    lastName = form.lastName,
+                    email = form.email,
+                    password = form.password,
+                    roleId = form.roleId,
+                    warehouseId = form.warehouseId
+                )
+                showAddUserDialog = false
+            }
+        )
+    }
+
+    // --- Edit ---
+    editingUser?.let { user ->
+        UserFormDialog(
+            existing = user,
+            roles = roles,
+            warehouses = warehouses,
+            onDismiss = { editingUser = null },
+            onSave = { form ->
+                userManagementViewModel.updateUser(
+                    userId = user.UserID,
+                    firstName = form.firstName,
+                    lastName = form.lastName,
+                    roleId = form.roleId,
+                    warehouseId = form.warehouseId,
+                    status = if (form.isActive) "Active" else "Inactive"
+                )
+                editingUser = null
+            }
+        )
     }
 }
 
 @Composable
-fun UsersListTab(onAddClick: () -> Unit) {
-    val users = listOf(
-        UserItemData("U-001", "Admin", "Pasig Warehouse", "Juan Dela Cruz", "juan.delacruz@abc.com", "active"),
-        UserItemData("U-002", "Manager", "San Juan Warehouse", "Patrick Garcia", "patrick.garcia@abc.com", "active"),
-        UserItemData("U-003", "Inventory Staff", "San Juan Warehouse", "Juana Tolentino", "juana.tolentino@abc.com", "active"),
-        UserItemData("U-004", "Inventory Staff", "Pasig Warehouse", "Yvonne Cruz", "yvonne.cruz@abc.com", "active")
-    )
+fun UsersListTab(
+    userManagementViewModel: UserManagementViewModel,
+    onAddClick: () -> Unit,
+    onEditClick: (UserListItemDto) -> Unit
+) {
+    val uiState by userManagementViewModel.userListState.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            items(users) { user ->
-                UserCard(user)
+        when (val state = uiState) {
+            is UserListUiState.Loading -> {
+                Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = StaffPortalButtonBlue)
+                }
+            }
+            is UserListUiState.Error -> {
+                Column(
+                    modifier = Modifier.fillMaxSize().weight(1f).padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = GasTrackRed, modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Couldn't load users", fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(state.message, fontSize = 13.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { userManagementViewModel.loadUsers() }, colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)) {
+                        Text("Retry")
+                    }
+                }
+            }
+            is UserListUiState.Success -> {
+                if (state.users.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                        Text("No staff accounts yet", color = Color.Gray)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(state.users, key = { it.UserID }) { user ->
+                            UserCard(
+                                user = user,
+                                onEdit = { onEditClick(user) },
+                                onDeactivate = { userManagementViewModel.deactivateUser(user.UserID) },
+                                onReactivate = {
+                                    userManagementViewModel.updateUser(
+                                        userId = user.UserID,
+                                        firstName = user.FirstName,
+                                        lastName = user.LastName,
+                                        roleId = user.RoleID,
+                                        warehouseId = user.WarehouseID,
+                                        status = "Active"
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -238,7 +295,14 @@ fun UsersListTab(onAddClick: () -> Unit) {
 }
 
 @Composable
-fun UserCard(user: UserItemData) {
+fun UserCard(
+    user: UserListItemDto,
+    onEdit: () -> Unit,
+    onDeactivate: () -> Unit,
+    onReactivate: () -> Unit
+) {
+    val isActive = user.Status == "Active"
+
     Card(
         modifier = Modifier.fillMaxWidth().shadow(2.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
@@ -248,17 +312,17 @@ fun UserCard(user: UserItemData) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
-                    Text(text = user.id, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    Text(text = user.role, fontSize = 11.sp, color = Color.Gray)
+                    Text(text = "U-${user.UserID}", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                    Text(text = user.RoleName, fontSize = 11.sp, color = Color.Gray)
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(text = user.branch, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(text = user.WarehouseName ?: "Unassigned", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Surface(
-                        color = if (user.status == "active") Color(0xFF4CAF50) else Color.Red,
+                        color = if (isActive) Color(0xFF4CAF50) else Color.Red,
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = user.status,
+                            text = user.Status,
                             color = Color.White,
                             fontSize = 9.sp,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
@@ -278,12 +342,12 @@ fun UserCard(user: UserItemData) {
                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Full Name", fontSize = 9.sp, color = Color.Gray)
-                        Text(user.fullName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("${user.FirstName} ${user.LastName}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                     Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray))
                     Column(modifier = Modifier.weight(1.5f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Username/Email", fontSize = 9.sp, color = Color.Gray)
-                        Text(user.email, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text("Email", fontSize = 9.sp, color = Color.Gray)
+                        Text(user.Email, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                     }
                 }
             }
@@ -291,49 +355,90 @@ fun UserCard(user: UserItemData) {
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                SalesActionItem(Icons.Default.Description, "View", Color(0xFFFFD54F))
-                SalesActionItem(Icons.Default.Edit, "Edit", Color(0xFF4CAF50))
-                SalesActionItem(Icons.Default.Delete, "Delete", Color.Red)
+                SalesActionItem(
+                    icon = Icons.Default.Edit,
+                    text = "Edit",
+                    color = Color(0xFF4CAF50),
+                    onClick = onEdit
+                )
+                if (isActive) {
+                    SalesActionItem(
+                        icon = Icons.Default.Delete,
+                        text = "Deactivate",
+                        color = Color.Red,
+                        onClick = onDeactivate
+                    )
+                } else {
+                    SalesActionItem(
+                        icon = Icons.Default.CheckCircle,
+                        text = "Reactivate",
+                        color = StaffPortalButtonBlue,
+                        onClick = onReactivate
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-fun ActivityLogTab() {
-    val logs = listOf(
-        ActivityLogEntry("U-001", "Admin", "Pasig Warehouse", "Export", "Exported Sales", "Juan Dela Cruz", "juan.delacruz@abc.com", "01/01/2026 10:30:00 AM"),
-        ActivityLogEntry("U-002", "Manager", "San Juan Warehouse", "User", "Update Username", "Patrick Garcia", "patrick.garcia@abc.com", "01/01/2026 10:30:00 AM"),
-        ActivityLogEntry("U-003", "Inventory Staff", "San Juan Warehouse", "Inventory", "Add Stocks", "Juana Tolentino", "juana.tolentino@abc.com", "01/01/2026 10:30:00 AM"),
-        ActivityLogEntry("U-004", "Inventory Staff", "Pasig Warehouse", "Inventory", "Deduct Stocks", "Yvonne Cruz", "yvonne.cruz@abc.com", "01/01/2026 10:30:00 AM")
-    )
+fun ActivityLogTab(userManagementViewModel: UserManagementViewModel) {
+    val uiState by userManagementViewModel.activityLogState.collectAsState()
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        items(logs) { log ->
-            ActivityLogCard(log)
+    when (val state = uiState) {
+        is ActivityLogUiState.Loading -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = StaffPortalButtonBlue)
+            }
+        }
+        is ActivityLogUiState.Error -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("Couldn't load activity log: ${state.message}", color = GasTrackRed)
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(onClick = { userManagementViewModel.loadActivityLog() }, colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)) {
+                    Text("Retry")
+                }
+            }
+        }
+        is ActivityLogUiState.Success -> {
+            if (state.logs.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No activity recorded yet", color = Color.Gray)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(state.logs, key = { it.ActivityID }) { log ->
+                        ActivityLogCard(log)
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-fun ActivityLogCard(log: ActivityLogEntry) {
+fun ActivityLogCard(log: ActivityLogDto) {
     Card(
         modifier = Modifier.fillMaxWidth().shadow(2.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
+        border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
-                    Text(text = log.id, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    Text(text = log.role, fontSize = 11.sp, color = Color.Gray)
+                    Text(text = "LOG-${log.ActivityID}", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                    Text(text = log.RoleName, fontSize = 11.sp, color = Color.Gray)
                 }
-                Text(text = log.branch, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(text = log.Description ?: log.ActivityType, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -346,12 +451,12 @@ fun ActivityLogCard(log: ActivityLogEntry) {
                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Module", fontSize = 9.sp, color = Color.Gray)
-                        Text(log.module, fontWeight = FontWeight.Bold)
+                        Text(log.Module, fontWeight = FontWeight.Bold)
                     }
                     Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray))
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Action", fontSize = 9.sp, color = Color.Gray)
-                        Text(log.action, fontWeight = FontWeight.Bold)
+                        Text(log.ActivityType, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -364,21 +469,19 @@ fun ActivityLogCard(log: ActivityLogEntry) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Full Name", fontSize = 9.sp, color = Color.Gray)
-                        Text(log.fullName, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    }
-                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray))
-                    Column(modifier = Modifier.weight(1.5f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Username/Email", fontSize = 9.sp, color = Color.Gray)
-                        Text(log.email, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                    }
+                    Text(
+                        text = "${log.FirstName} ${log.LastName}",
+                        modifier = Modifier.weight(1f),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = log.timestamp,
+                text = log.ActivityDate.take(19).replace("T", " "),
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
                 fontSize = 11.sp,
@@ -389,8 +492,43 @@ fun ActivityLogCard(log: ActivityLogEntry) {
     }
 }
 
+/**
+ * One dialog for both creating and editing a user.
+ * - existing == null  -> create mode (email + temporary password required)
+ * - existing != null  -> edit mode (email is read-only, no password field, status switch shown)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UserEditDialog(onDismiss: () -> Unit) {
+fun UserFormDialog(
+    existing: UserListItemDto?,
+    roles: List<RoleDto>,
+    warehouses: List<WarehouseDto>,
+    onDismiss: () -> Unit,
+    onSave: (UserFormData) -> Unit
+) {
+    val isEdit = existing != null
+
+    var firstName by remember { mutableStateOf(existing?.FirstName ?: "") }
+    var lastName by remember { mutableStateOf(existing?.LastName ?: "") }
+    var email by remember { mutableStateOf(existing?.Email ?: "") }
+    var password by remember { mutableStateOf("") }
+    var selectedRoleId by remember { mutableStateOf(existing?.RoleID) }
+    var selectedWarehouseId by remember { mutableStateOf(existing?.WarehouseID) }
+    var isActive by remember { mutableStateOf(existing?.Status != "Inactive") }
+
+    var roleDropdownExpanded by remember { mutableStateOf(false) }
+    var warehouseDropdownExpanded by remember { mutableStateOf(false) }
+
+    // Roles load asynchronously: pick a sensible default for "create" once they arrive.
+    LaunchedEffect(roles) {
+        if (selectedRoleId == null) selectedRoleId = roles.firstOrNull()?.RoleID
+    }
+
+    val canSave = firstName.isNotBlank() &&
+            lastName.isNotBlank() &&
+            selectedRoleId != null &&
+            (isEdit || (email.contains("@") && password.length >= 4))
+
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             modifier = Modifier.fillMaxWidth(0.9f).wrapContentHeight(),
@@ -402,41 +540,149 @@ fun UserEditDialog(onDismiss: () -> Unit) {
                     .padding(20.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                Text("New User Information", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = if (isEdit) "Edit User" else "New User Information",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text("BASIC INFORMATION", fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color.Gray)
                 Spacer(modifier = Modifier.height(8.dp))
-                UserDetailField("Full Name", "ABC Company")
+                OutlinedTextField(
+                    value = firstName,
+                    onValueChange = { firstName = it },
+                    label = { Text("First Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
-                UserDetailField("Username / Email Address", "killianjulian@gmail.com")
+                OutlinedTextField(
+                    value = lastName,
+                    onValueChange = { lastName = it },
+                    label = { Text("Last Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
-                UserDetailField("Confirm Password", "● ● ● ● ● ● ● ● ● ● ●")
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email Address") },
+                    enabled = !isEdit,
+                    supportingText = if (isEdit) {
+                        { Text("Email can't be changed after the account is created") }
+                    } else null,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                if (!isEdit) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Temporary Password") },
+                        supportingText = { Text("At least 4 characters") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("Role & Assignment", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color.Black)
                 Spacer(modifier = Modifier.height(12.dp))
 
-                UserDropdownField("Role", "Select role")
-                Spacer(modifier = Modifier.height(8.dp))
-                UserDropdownField("Branch / Warehouse", "Select Branch / Warehouse")
-                Spacer(modifier = Modifier.height(8.dp))
-                UserDropdownField("Status", "Active")
-
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Module Access", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color.Black)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        ModuleAccessCheckbox("Dashboard", true)
-                        ModuleAccessCheckbox("Inventory", false)
-                        ModuleAccessCheckbox("Supplier Module", false)
+                // --- Role ---
+                if (roles.isEmpty()) {
+                    Text("Loading roles…", fontSize = 12.sp, color = Color.Gray)
+                } else {
+                    ExposedDropdownMenuBox(
+                        expanded = roleDropdownExpanded,
+                        onExpandedChange = { roleDropdownExpanded = !roleDropdownExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = roles.find { it.RoleID == selectedRoleId }?.RoleName ?: "Select role",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Role") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = roleDropdownExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = roleDropdownExpanded,
+                            onDismissRequest = { roleDropdownExpanded = false }
+                        ) {
+                            roles.forEach { role ->
+                                DropdownMenuItem(
+                                    text = { Text(role.RoleName) },
+                                    onClick = {
+                                        selectedRoleId = role.RoleID
+                                        roleDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        ModuleAccessCheckbox("POS Terminal", false)
-                        ModuleAccessCheckbox("Product Module", false)
-                        ModuleAccessCheckbox("Data", false)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // --- Warehouse ---
+                ExposedDropdownMenuBox(
+                    expanded = warehouseDropdownExpanded,
+                    onExpandedChange = { warehouseDropdownExpanded = !warehouseDropdownExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = warehouses.find { it.WarehouseID == selectedWarehouseId }?.WarehouseName ?: "Unassigned",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Branch / Warehouse") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = warehouseDropdownExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = warehouseDropdownExpanded,
+                        onDismissRequest = { warehouseDropdownExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Unassigned") },
+                            onClick = {
+                                selectedWarehouseId = null
+                                warehouseDropdownExpanded = false
+                            }
+                        )
+                        warehouses.forEach { warehouse ->
+                            DropdownMenuItem(
+                                text = { Text(warehouse.WarehouseName) },
+                                onClick = {
+                                    selectedWarehouseId = warehouse.WarehouseID
+                                    warehouseDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // --- Status (edit only) ---
+                if (isEdit) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Account Active", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                text = if (isActive) "User can log in" else "User is blocked from logging in",
+                                fontSize = 11.sp,
+                                color = Color.Gray
+                            )
+                        }
+                        Switch(checked = isActive, onCheckedChange = { isActive = it })
                     }
                 }
 
@@ -452,65 +698,31 @@ fun UserEditDialog(onDismiss: () -> Unit) {
                         Text("Cancel", color = Color.Black)
                     }
                     Button(
-                        onClick = onDismiss,
+                        enabled = canSave,
+                        onClick = {
+                            selectedRoleId?.let { roleId ->
+                                onSave(
+                                    UserFormData(
+                                        firstName = firstName.trim(),
+                                        lastName = lastName.trim(),
+                                        email = email.trim(),
+                                        password = password,
+                                        roleId = roleId,
+                                        warehouseId = selectedWarehouseId,
+                                        isActive = isActive
+                                    )
+                                )
+                            }
+                        },
                         modifier = Modifier.weight(1f).height(40.dp),
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)
                     ) {
-                        Text("Save User", color = Color.White)
+                        Text(if (isEdit) "Save Changes" else "Save User", color = Color.White)
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-fun UserDetailField(label: String, value: String) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(label, fontSize = 10.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-        Box(modifier = Modifier.fillMaxWidth().border(1.dp, Color.LightGray, RoundedCornerShape(4.dp)).padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text(value, fontSize = 13.sp, color = if (value.contains("Select") || value.contains("Enter")) Color.LightGray else Color.Black)
-        }
-    }
-}
-
-@Composable
-fun UserDropdownField(label: String, value: String) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(label, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(4.dp))
-        Surface(
-            modifier = Modifier.fillMaxWidth().border(1.dp, Color.LightGray, RoundedCornerShape(8.dp)),
-            shape = RoundedCornerShape(8.dp),
-            color = Color.White
-        ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = value, fontSize = 13.sp, color = if (value.contains("Select")) Color.Gray else Color.Black)
-                Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(20.dp))
-            }
-        }
-    }
-}
-
-@Composable
-fun ModuleAccessCheckbox(label: String, checked: Boolean) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-        Box(
-            modifier = Modifier
-                .size(18.dp)
-                .background(if (checked) StaffPortalBlue else Color.Transparent, RoundedCornerShape(4.dp))
-                .border(1.dp, if (checked) StaffPortalBlue else Color.Gray, RoundedCornerShape(4.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            if (checked) Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(text = label, fontSize = 12.sp, color = Color.Black)
     }
 }
 
