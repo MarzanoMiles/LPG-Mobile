@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,6 +21,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,7 +30,7 @@ import com.example.gastrack.ui.theme.*
 
 @Composable
 fun ARChooseScreen(
-    onContinue: () -> Unit
+    onContinue: (GasTankType) -> Unit
 ) {
     var selectedType by remember { mutableStateOf("11kg Standard") }
 
@@ -66,7 +68,7 @@ fun ARChooseScreen(
                 color = Color.White
             ) {
                 Button(
-                    onClick = onContinue,
+                    onClick = { onContinue(GasTankType.fromUiLabel(selectedType)) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(24.dp)
@@ -130,7 +132,7 @@ fun ARChooseScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // --- Tank Options ---
-            _root_ide_package_.com.example.gastrack.ui.presentation.ARTankOption(
+            ARTankOption(
                 name = "11kg Standard",
                 description = "Standard household gas cylinder",
                 imageRes = R.drawable.tank_11kg,
@@ -139,7 +141,7 @@ fun ARChooseScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            _root_ide_package_.com.example.gastrack.ui.presentation.ARTankOption(
+            ARTankOption(
                 name = "2.7kg Camping",
                 description = "Small portable camping tank",
                 imageRes = R.drawable.tank_2_7kg,
@@ -148,7 +150,7 @@ fun ARChooseScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            _root_ide_package_.com.example.gastrack.ui.presentation.ARTankOption(
+            ARTankOption(
                 name = "50kg Commercial",
                 description = "Industrial grade large cylinder",
                 imageRes = R.drawable.tank_50kg,
@@ -223,5 +225,5 @@ fun ARTankOption(
 @Preview(showBackground = true)
 @Composable
 fun ARChooseScreenPreview() {
-    _root_ide_package_.com.example.gastrack.ui.presentation.ARChooseScreen(onContinue = {})
+    ARChooseScreen(onContinue = {})
 }

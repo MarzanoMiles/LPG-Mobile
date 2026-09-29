@@ -72,4 +72,8 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     debugImplementation(libs.androidx.ui.tooling)
+
+    implementation("io.github.sceneview:arsceneview:2.3.0")   // brings ARCore + Filament
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")//This two: only added for changes
 }

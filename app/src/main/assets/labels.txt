@@ -1,0 +1,10 @@
+0 Neutral_Background
+1 Empty_Hands
+2 Candle
+3 Tissue
+4 Rice_Cooker
+5 LPG_Cylinder
+6 Cooking_Oil
+7 Match_box
+8 Plastic_bottle
+9 Plastic_container

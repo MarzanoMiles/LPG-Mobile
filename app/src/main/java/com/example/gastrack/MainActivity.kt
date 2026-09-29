@@ -16,6 +16,8 @@ import com.example.gastrack.ui.presentation.*
 import com.example.gastrack.ui.theme.GasTrackTheme
 import com.example.gastrack.viewmodel.AuthViewModel
 import com.example.gastrack.viewmodel.CartViewModel
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -342,13 +344,21 @@ fun AppNavigation() {
         }
         composable("ar_choose") {
             ARChooseScreen(
-                onContinue = {
-                    navController.navigate("ar_scan")
+                onContinue = { type ->
+                    navController.navigate("ar_scan/${type.name}")
                 }
             )
         }
-        composable("ar_scan") {
+        composable(
+            route = "ar_scan/{tankType}",
+            arguments = listOf(navArgument("tankType") { type = NavType.StringType })
+        ) { entry ->
+            val tankType = runCatching {
+                GasTankType.valueOf(entry.arguments?.getString("tankType").orEmpty())
+            }.getOrDefault(GasTankType.PETRON_11KG)
+
             ARScanScreen(
+                tankType = tankType,
                 onScanComplete = {
                     navController.navigate("order_tab") {
                         popUpTo("customer_home")
