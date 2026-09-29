@@ -4,7 +4,9 @@ import android.content.Context
 import android.media.Image
 import android.os.SystemClock
 import android.util.Log
+import androidx.camera.core.ImageProxy
 import com.google.ar.core.Frame
+import com.google.ar.core.exceptions.NotYetAvailableException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.tensorflow.lite.DataType
@@ -15,14 +17,12 @@ import java.nio.ByteOrder
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
-import com.google.ar.core.exceptions.NotYetAvailableException
 
 private const val TAG = "HazardDetector"
 
 /**
  * TensorFlow Lite wrapper for a Teachable Machine image classifier.
  * Reads input/output tensor info from the model itself; nothing about size or type is assumed.
- * Created once, used from one background thread, closed when the screen is destroyed.
  */
 class HazardDetector(
     context: Context,
@@ -99,10 +99,34 @@ class HazardDetector(
         }
     }
 
-    /** Classifies one ARCore camera frame (YUV_420_888). Does NOT close [image]. */
+    /** ARCore camera frame (landscape sensor image, rotated 90° to portrait). Does NOT close [image]. */
     @Synchronized
     fun classify(image: Image): Prediction {
-        fillInput(image)
+        val p = image.planes
+        return infer(
+            p[0].buffer, p[1].buffer, p[2].buffer,
+            p[0].rowStride, p[0].pixelStride, p[1].rowStride, p[1].pixelStride,
+            image.width, image.height, 90
+        )
+    }
+
+    /** CameraX frame; uses the rotation CameraX reports. Does NOT close [image]. */
+    @Synchronized
+    fun classify(image: ImageProxy): Prediction {
+        val p = image.planes
+        return infer(
+            p[0].buffer, p[1].buffer, p[2].buffer,
+            p[0].rowStride, p[0].pixelStride, p[1].rowStride, p[1].pixelStride,
+            image.width, image.height, image.imageInfo.rotationDegrees
+        )
+    }
+
+    private fun infer(
+        yBuf: ByteBuffer, uBuf: ByteBuffer, vBuf: ByteBuffer,
+        yRow: Int, yPix: Int, uvRow: Int, uvPix: Int,
+        srcW: Int, srcH: Int, rotation: Int
+    ): Prediction {
+        fillInput(yBuf, uBuf, vBuf, yRow, yPix, uvRow, uvPix, srcW, srcH, rotation)
         val scores = FloatArray(outCount)
         when (outputType) {
             DataType.FLOAT32 -> {
@@ -123,23 +147,18 @@ class HazardDetector(
     }
 
     /**
-     * Center-crops to a square, rotates the landscape sensor image upright (90° CW, correct for
-     * portrait on a typical back camera), samples down to the model size and converts YUV -> RGB
+     * Rotates the frame upright ([rotation] = clockwise degrees needed: 0/90/180/270),
+     * center-crops to a square, samples down to the model size, converts YUV -> RGB
      * straight into the input buffer. No intermediate Bitmap.
      */
-    private fun fillInput(image: Image) {
-        val yBuf = image.planes[0].buffer
-        val uBuf = image.planes[1].buffer
-        val vBuf = image.planes[2].buffer
-        val yRow = image.planes[0].rowStride
-        val yPix = image.planes[0].pixelStride
-        val uvRow = image.planes[1].rowStride
-        val uvPix = image.planes[1].pixelStride
-        val srcW = image.width
-        val srcH = image.height
-
-        val upW = srcH
-        val upH = srcW
+    private fun fillInput(
+        yBuf: ByteBuffer, uBuf: ByteBuffer, vBuf: ByteBuffer,
+        yRow: Int, yPix: Int, uvRow: Int, uvPix: Int,
+        srcW: Int, srcH: Int, rotation: Int
+    ) {
+        val upW: Int
+        val upH: Int
+        if (rotation == 90 || rotation == 270) { upW = srcH; upH = srcW } else { upW = srcW; upH = srcH }
         val side = minOf(upW, upH)
         val offX = (upW - side) / 2
         val offY = (upH - side) / 2
@@ -148,10 +167,16 @@ class HazardDetector(
         inputBuffer.rewind()
         for (oy in 0 until inputH) {
             val uy = offY + oy * side / inputH
-            val sx = uy
             for (ox in 0 until inputW) {
                 val ux = offX + ox * side / inputW
-                val sy = srcH - 1 - ux
+                val sx: Int
+                val sy: Int
+                when (rotation) {
+                    90 -> { sx = uy; sy = srcH - 1 - ux }
+                    180 -> { sx = srcW - 1 - ux; sy = srcH - 1 - uy }
+                    270 -> { sx = srcW - 1 - uy; sy = ux }
+                    else -> { sx = ux; sy = uy }
+                }
 
                 val y = yBuf.get(sy * yRow + sx * yPix).toInt() and 0xFF
                 val uvIdx = (sy shr 1) * uvRow + (sx shr 1) * uvPix
@@ -182,8 +207,9 @@ class HazardDetector(
 }
 
 /**
- * Owns the detector, a single background thread, throttling and smoothing.
- * Call [analyze] from the AR frame callback; it returns immediately.
+ * Owns the detector, throttling and smoothing.
+ * - [analyze] with a CameraX ImageProxy: call from the CameraX analysis executor.
+ * - [analyze] with an ARCore Frame: hands work to its own background thread.
  */
 class HazardAnalyzer(
     context: Context,
@@ -212,6 +238,26 @@ class HazardAnalyzer(
         }
     }
 
+    /** CameraX path. Always closes [proxy]. */
+    fun analyze(proxy: ImageProxy) {
+        try {
+            val d = detector
+            if (closed || d == null) return
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastRunMs < intervalMs) return
+            lastRunMs = now
+            val p = d.classify(proxy)
+            Log.d(TAG, "pred=${p.label} ${"%.2f".format(p.confidence)}")
+            _state.value = smoother.update(p)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Inference failed", t)
+            _state.value = HazardUiState(HazardState.ERROR, message = t.message ?: "Inference failed")
+        } finally {
+            proxy.close()
+        }
+    }
+
+    /** ARCore path. */
     fun analyze(frame: Frame) {
         if (closed) return
         val d = detector ?: return
@@ -240,7 +286,7 @@ class HazardAnalyzer(
                     Log.e(TAG, "Inference failed", t)
                     _state.value = HazardUiState(HazardState.ERROR, message = t.message ?: "Inference failed")
                 } finally {
-                    image.close()   // always released
+                    image.close()
                     busy.set(false)
                 }
             }

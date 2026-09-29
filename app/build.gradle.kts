@@ -75,5 +75,6 @@ dependencies {
 
     implementation("io.github.sceneview:arsceneview:2.3.0")   // brings ARCore + Filament
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")//This two: only added for changes
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("io.github.sceneview:sceneview:2.3.0")//This 4: only added for changes
 }

@@ -294,7 +294,7 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
 }
 
 @Composable
-private fun HazardBanner(ui: HazardUiState) {
+fun HazardBanner(ui: HazardUiState) {
     val container: Color
     val title: String
     val lines: List<String>
@@ -347,7 +347,7 @@ private fun HazardBanner(ui: HazardUiState) {
 }
 
 @Composable
-private fun CenterMessage(
+fun CenterMessage(
     message: String,
     buttonText: String? = null,
     onButtonClick: () -> Unit = {}

@@ -357,7 +357,7 @@ fun AppNavigation() {
                 GasTankType.valueOf(entry.arguments?.getString("tankType").orEmpty())
             }.getOrDefault(GasTankType.PETRON_11KG)
 
-            ARScanScreen(
+            ARScanCameraScreen(
                 tankType = tankType,
                 onScanComplete = {
                     navController.navigate("order_tab") {
