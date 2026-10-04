@@ -22,6 +22,7 @@ import androidx.navigation.navArgument
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        EasyArSupport.initialize(this) ///New Line
         setContent {
             GasTrackTheme {
                 Surface(
@@ -357,7 +358,7 @@ fun AppNavigation() {
                 GasTankType.valueOf(entry.arguments?.getString("tankType").orEmpty())
             }.getOrDefault(GasTankType.PETRON_11KG)
 
-            ARScanCameraScreen(
+            ARScanEasyArScreen(
                 tankType = tankType,
                 onScanComplete = {
                     navController.navigate("order_tab") {

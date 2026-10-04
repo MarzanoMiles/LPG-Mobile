@@ -121,7 +121,8 @@ class HazardDetector(
         )
     }
 
-    private fun infer(
+    @Synchronized
+    fun infer(
         yBuf: ByteBuffer, uBuf: ByteBuffer, vBuf: ByteBuffer,
         yRow: Int, yPix: Int, uvRow: Int, uvPix: Int,
         srcW: Int, srcH: Int, rotation: Int
@@ -295,6 +296,35 @@ class HazardAnalyzer(
         }
     }
 
+    /** EasyAR path: true when a frame may be handed over (detector ready, not busy, throttle elapsed). */
+    fun canSubmit(): Boolean =
+        !closed && detector != null && !busy.get() &&
+                SystemClock.elapsedRealtime() - lastRunMs >= intervalMs
+
+    /** EasyAR path: runs [work] on the analyzer thread. Call only after [canSubmit] returned true. */
+    fun submit(work: (HazardDetector) -> Prediction?) {
+        val d = detector ?: return
+        if (closed || !busy.compareAndSet(false, true)) return
+        lastRunMs = SystemClock.elapsedRealtime()
+        try {
+            executor.execute {
+                try {
+                    val p = work(d)
+                    if (p != null) {
+                        Log.d(TAG, "pred=${p.label} ${"%.2f".format(p.confidence)}")
+                        _state.value = smoother.update(p)
+                    }
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Inference failed", t)
+                    _state.value = HazardUiState(HazardState.ERROR, message = t.message ?: "Inference failed")
+                } finally {
+                    busy.set(false)
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            busy.set(false)
+        }
+    }
     override fun close() {
         closed = true
         try {

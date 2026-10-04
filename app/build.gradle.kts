@@ -77,4 +77,5 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("io.github.sceneview:sceneview:2.3.0")//This 4: only added for changes
+    implementation(files("libs/EasyAR.aar")) //for new AR plugin
 }
