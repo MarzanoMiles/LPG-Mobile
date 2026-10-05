@@ -219,8 +219,11 @@ object GlbParser {
                 minZ = min(minZ, r.pos[i * 3 + 2]); maxZ = max(maxZ, r.pos[i * 3 + 2])
             }
         }
-        val extent = max(maxX - minX, max(maxY - minY, maxZ - minZ))
-        val scale = if (extent > 1e-6f) targetSizeMeters / extent else 1f
+        val rawW = maxX - minX
+        val rawH = maxY - minY
+        val rawD = maxZ - minZ
+        // Scale so the model's HEIGHT (Y) equals the real height in meters.
+        val scale = if (rawH > 1e-6f) targetSizeMeters / rawH else 1f
         val cx = (minX + maxX) / 2f
         val cz = (minZ + maxZ) / 2f
 
@@ -236,7 +239,11 @@ object GlbParser {
             }
             GlbPrimitive(v, r.idx, r.color, r.tex)
         }
-        Log.i(GLB_TAG, "Parsed $assetPath: ${out.size} parts, original largest dimension=$extent")
+        Log.i(
+            GLB_TAG,
+            "Parsed $assetPath: ${out.size} parts, raw size x=$rawW y=$rawH z=$rawD, " +
+                    "scaled to meters: width=${rawW * scale} height=${rawH * scale} depth=${rawD * scale}"
+        )
         return GlbData(out)
     }
 }

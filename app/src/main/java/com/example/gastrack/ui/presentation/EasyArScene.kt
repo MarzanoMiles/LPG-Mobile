@@ -20,16 +20,22 @@ import cn.easyar.Vec2F
 import java.nio.ByteBuffer
 
 private const val SCENE_TAG = "EasyArScene"
-private const val ASSUMED_CAMERA_HEIGHT_M = 1.3f   // used only by "Estimated floor"
-private const val TAP_SEARCH_MS = 2500L            // how long a tap keeps searching for the floor
+
+/** Pinch-to-resize breaks real-world size. Set to true if you want to allow it. */
+const val ALLOW_PINCH_RESIZE = true
+
+private const val FALLBACK_CAMERA_HEIGHT_M = 1.3f // only used until EasyAR has detected a real floor
+private const val TAP_SEARCH_MS = 2500L           // how long a tap keeps searching for the floor
+private const val FLOOR_RECENT_MS = 1500L         // a floor hit this recent counts as "floor found"
 
 data class EasyArUiState(
     val tracking: Boolean = false,
+    val weak: Boolean = false,
     val placed: Boolean = false,
     val noSurface: Boolean = false,
     val floorReady: Boolean = false,
     val searching: Boolean = false,
-    val estimated: Boolean = false,
+    val guessed: Boolean = false,
     val error: String? = null
 )
 
@@ -56,9 +62,12 @@ class EasyArScene(
     @Volatile private var modelDirty = false
 
     private var placed = false
-    private var estimated = false
+    private var guessed = false
     private var noSurface = false
     private var floorReady = false
+    private var floorY = Float.NaN          // world Y of the last detected horizontal plane
+    private var lastFloorSeenMs = 0L
+    private var probeIndex = 0
     private var px = 0f
     private var py = 0f
     private var pz = 0f
@@ -75,6 +84,11 @@ class EasyArScene(
     private val model = FloatArray(16)
     private val tmp = FloatArray(16)
     private val mvp = FloatArray(16)
+
+    private val probePoints = arrayOf(
+        floatArrayOf(0.5f, 0.60f), floatArrayOf(0.5f, 0.75f),
+        floatArrayOf(0.3f, 0.70f), floatArrayOf(0.7f, 0.70f)
+    )
 
     // ---- UI-thread API ----
     fun setModel(data: GlbData) { modelData = data; modelDirty = true }
@@ -141,14 +155,15 @@ class EasyArScene(
         return floatArrayOf(d[0], d[4], d[8], d[12], d[1], d[5], d[9], d[13], d[2], d[6], d[10], d[14], d[3], d[7], d[11], d[15])
     }
 
-    private fun publish(tracking: Boolean) {
+    private fun publish(tracking: Boolean, weak: Boolean) {
         val s = EasyArUiState(
             tracking = tracking,
+            weak = weak,
             placed = placed,
             noSurface = noSurface,
             floorReady = floorReady,
             searching = pendingTap != null,
-            estimated = estimated,
+            guessed = guessed,
             error = null
         )
         if (s != lastPublished) {
@@ -157,25 +172,23 @@ class EasyArScene(
         }
     }
 
-    /** Hit test at a screen point (0..1). Planes first; optionally falls back to the point cloud (less precise). */
+    /** Real horizontal-plane hit at a screen point (0..1). Returns the world position or null. */
     private fun hitFloor(
-        camParams: CameraParameters, aspect: Float, screenRotation: Int,
-        nx: Float, ny: Float, allowPointCloud: Boolean
+        camParams: CameraParameters, aspect: Float, screenRotation: Int, nx: Float, ny: Float
     ): FloatArray? {
         val cam = camera ?: return null
         val imagePoint = camParams.imageCoordinatesFromScreenCoordinates(
             aspect, screenRotation, true, false, Vec2F(nx, ny)
         )
-        var hits = cam.hitTestAgainstHorizontalPlane(imagePoint)
-        if (hits.isEmpty() && allowPointCloud) hits = cam.hitTestAgainstPointCloud(imagePoint)
+        val hits = cam.hitTestAgainstHorizontalPlane(imagePoint)
         return if (hits.isEmpty()) null else hits[0].data
     }
 
     /**
-     * Fallback: intersect the view ray through a screen point with a horizontal plane
-     * ASSUMED_CAMERA_HEIGHT_M below the camera. Needs the camera to point downward. Assumes world Y is up.
+     * Intersects the view ray through a screen point with the horizontal plane y = planeY.
+     * Needs the camera to point downward at that spot. Assumes world Y is up.
      */
-    private fun estimateFloorPoint(nx: Float, ny: Float, proj: FloatArray, camToWorld: FloatArray): FloatArray? {
+    private fun rayPlanePoint(nx: Float, ny: Float, proj: FloatArray, camToWorld: FloatArray, planeY: Float): FloatArray? {
         val invProj = FloatArray(16)
         if (!Matrix.invertM(invProj, 0, proj, 0)) return null
         val ndc = floatArrayOf(2f * nx - 1f, 1f - 2f * ny, 1f, 1f)
@@ -186,12 +199,21 @@ class EasyArScene(
         val dirWorld = FloatArray(4)
         Matrix.multiplyMV(dirWorld, 0, camToWorld, 0, dirCam, 0)
         if (dirWorld[1] >= -1e-3f) return null // not looking downward
-        val t = -ASSUMED_CAMERA_HEIGHT_M / dirWorld[1]
+        val t = (planeY - camToWorld[13]) / dirWorld[1]
+        if (t <= 0f) return null
         return floatArrayOf(
             camToWorld[12] + dirWorld[0] * t,
-            camToWorld[13] - ASSUMED_CAMERA_HEIGHT_M,
+            planeY,
             camToWorld[14] + dirWorld[2] * t
         )
+    }
+
+    private fun place(p: FloatArray, wasGuessed: Boolean) {
+        px = p[0]; py = p[1]; pz = p[2]
+        placed = true
+        guessed = wasGuessed
+        noSurface = false
+        pendingTap = null
     }
 
     fun render(width: Int, height: Int, screenRotation: Int) {
@@ -208,10 +230,11 @@ class EasyArScene(
         if (clearRequested) {
             clearRequested = false
             placed = false
-            estimated = false
+            guessed = false
             noSurface = false
-            floorReady = false
             pendingTap = null
+            userScale = 1f
+            yawDeg = 0f
         }
 
         val oframe = oFrameBuffer?.peek() ?: return
@@ -247,57 +270,73 @@ class EasyArScene(
 
             val status = iframe.trackingStatus()
             val tracking = status != MotionTrackingStatus.NotTracking
+            val weak = status == MotionTrackingStatus.Limited
             if (status != lastStatus) {
                 lastStatus = status
-                Log.i(SCENE_TAG, "trackingStatus=$status")
+                Log.i(SCENE_TAG, "trackingStatus=$status (0=NotTracking, 1=Limited, 2=Tracking)")
             }
             frameCount++
             val now = SystemClock.elapsedRealtime()
             val proj = glMatrix(camParams.projection(0.01f, 500f, aspect, screenRotation, true, false))
             val camToWorld = glMatrix(iframe.cameraTransform())
 
-            // 1) Is a floor visible? (probe at the lower middle of the screen, planes only)
+            // 1) Floor probe: remember the real floor height while the user scans
             if (!tracking) {
                 floorReady = false
-            } else if (!placed && frameCount % 12 == 0) {
-                floorReady = hitFloor(camParams, aspect, screenRotation, 0.5f, 0.6f, false) != null
+            } else if (!placed) {
+                if (frameCount % 6 == 0) {
+                    val pt = probePoints[probeIndex % probePoints.size]
+                    probeIndex++
+                    val hit = hitFloor(camParams, aspect, screenRotation, pt[0], pt[1])
+                    if (hit != null) {
+                        floorY = hit[1]
+                        lastFloorSeenMs = now
+                    }
+                }
+                floorReady = now - lastFloorSeenMs < FLOOR_RECENT_MS
             }
 
-            // 2) Tap with retry for TAP_SEARCH_MS
+            // 2) Tap: real plane hit, retried for TAP_SEARCH_MS; then the remembered floor height
             val tap = pendingTap
             if (tap != null) {
                 if (tracking && frameCount % 3 == 0) {
-                    val hit = hitFloor(camParams, aspect, screenRotation, tap[0], tap[1], true)
+                    val hit = hitFloor(camParams, aspect, screenRotation, tap[0], tap[1])
                     if (hit != null) {
-                        px = hit[0]; py = hit[1]; pz = hit[2]
-                        placed = true
-                        estimated = false
-                        noSurface = false
-                        pendingTap = null
-                        Log.i(SCENE_TAG, "placed on detected floor at ($px, $py, $pz)")
+                        floorY = hit[1]
+                        lastFloorSeenMs = now
+                        place(hit, false)
+                        Log.i(SCENE_TAG, "placed on detected floor at (${hit[0]}, ${hit[1]}, ${hit[2]})")
                     }
                 }
                 if (pendingTap != null && now - tapStartedMs > TAP_SEARCH_MS) {
                     pendingTap = null
-                    noSurface = true
-                    Log.i(SCENE_TAG, "tap gave up: no floor found (tracking=$tracking)")
+                    val p = if (tracking && !floorY.isNaN()) rayPlanePoint(tap[0], tap[1], proj, camToWorld, floorY) else null
+                    if (p != null) {
+                        place(p, false)
+                        Log.i(SCENE_TAG, "placed using remembered floor height y=$floorY")
+                    } else {
+                        noSurface = true
+                        Log.i(SCENE_TAG, "tap gave up: no floor found (tracking=$tracking, knownFloorY=$floorY)")
+                    }
                 }
             }
 
-            // 3) "Estimated floor" placement
+            // 3) "Estimated floor" button
             if (estimatedRequested) {
                 estimatedRequested = false
-                val p = if (tracking) estimateFloorPoint(0.5f, 0.7f, proj, camToWorld) else null
-                if (p != null) {
-                    px = p[0]; py = p[1]; pz = p[2]
-                    placed = true
-                    estimated = true
-                    noSurface = false
-                    pendingTap = null
-                    Log.i(SCENE_TAG, "placed on estimated floor at ($px, $py, $pz)")
+                if (tracking) {
+                    val known = !floorY.isNaN()
+                    val planeY = if (known) floorY else camToWorld[13] - FALLBACK_CAMERA_HEIGHT_M
+                    val p = rayPlanePoint(0.5f, 0.7f, proj, camToWorld, planeY)
+                    if (p != null) {
+                        place(p, !known)
+                        Log.i(SCENE_TAG, "estimated placement: floorHeightKnown=$known y=$planeY")
+                    } else {
+                        noSurface = true
+                        Log.i(SCENE_TAG, "estimated placement failed (camera must point downward)")
+                    }
                 } else {
                     noSurface = true
-                    Log.i(SCENE_TAG, "estimated floor failed (tracking=$tracking, camera must point downward)")
                 }
             }
 
@@ -314,7 +353,7 @@ class EasyArScene(
                     glb.draw(mvp, model)
                 }
             }
-            publish(tracking)
+            publish(tracking, weak)
         } finally {
             iframe.dispose()
             oframe.dispose()

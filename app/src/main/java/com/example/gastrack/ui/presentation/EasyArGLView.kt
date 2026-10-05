@@ -15,7 +15,7 @@ import javax.microedition.khronos.egl.EGLDisplay
 import javax.microedition.khronos.egl.EGLSurface
 import javax.microedition.khronos.opengles.GL10
 
-class EasyArGLView(context: Context, private val scene: EasyArScene) : GLSurfaceView(context) {
+class EasyArGLView(context: Context, private val scene: EasyArRenderer) : GLSurfaceView(context) {
 
     private val lock = Any()
     private var finishing = false
@@ -42,7 +42,7 @@ class EasyArGLView(context: Context, private val scene: EasyArScene) : GLSurface
 
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            scene.scaleBy(detector.scaleFactor)
+            if (ALLOW_PINCH_RESIZE) scene.scaleBy(detector.scaleFactor)
             return true
         }
     })
