@@ -203,10 +203,7 @@ fun SalesDashboardTab(salesListViewModel: SalesListViewModel) {
                         SalesStatCard("TODAY'S SALE", "₱ ${String.format(Locale.US, "%,.2f", stats.todaysSalesTotal)}", Color(0xFF3F51B5), modifier = Modifier.weight(1f))
                         SalesStatCard("TRANSACTIONS", stats.todaysTransactionCount.toString(), Color(0xFF81C784), modifier = Modifier.weight(1f))
                     }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        SalesStatCard("AVG ORDER", "₱ ${String.format(Locale.US, "%,.0f", stats.averageOrderValue)}", Color(0xFFFFD54F), modifier = Modifier.weight(1f))
-                        SalesStatCard("PEAK HOUR", stats.peakHourLabel, Color(0xFFBA68C8), modifier = Modifier.weight(1f))
-                    }
+                    SalesStatCard("AVG ORDER", "₱ ${String.format(Locale.US, "%,.0f", stats.averageOrderValue)}", Color(0xFFFFD54F), modifier = Modifier.fillMaxWidth())
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))

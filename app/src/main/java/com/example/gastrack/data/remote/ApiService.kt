@@ -1,6 +1,7 @@
 package com.example.gastrack.data.remote
 
 import com.example.gastrack.data.remote.dto.*
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
 
@@ -149,4 +150,32 @@ interface ApiService {
 
     @GET("warehouses")
     suspend fun getWarehouses(): Response<List<WarehouseDto>>
+
+    @GET("reports")
+    suspend fun getComplianceReports(): Response<List<ComplianceReportDto>>
+
+    @GET("reports/summary")
+    suspend fun getComplianceSummary(): Response<ComplianceSummaryDto>
+
+    @POST("reports")
+    suspend fun createComplianceReport(@Body body: CreateComplianceReportRequest): Response<CreateComplianceReportResponse>
+
+    @POST("reports/{id}/generate")
+    suspend fun generateComplianceReport(@Path("id") reportId: Int): Response<GenerateReportResponse>
+
+    @PUT("reports/{id}/submit")
+    suspend fun submitComplianceReport(@Path("id") reportId: Int): Response<Unit>
+
+    @DELETE("reports/{id}")
+    suspend fun deleteComplianceReport(@Path("id") reportId: Int): Response<Unit>
+
+    @GET("reports/data-activity")
+    suspend fun getDataActivityLog(): Response<List<DataActivityLogDto>>
+
+    @Streaming
+    @GET("reports/data-export")
+    suspend fun exportData(
+        @Query("dataType") dataType: String,
+        @Query("range") range: String
+    ): Response<ResponseBody>
 }

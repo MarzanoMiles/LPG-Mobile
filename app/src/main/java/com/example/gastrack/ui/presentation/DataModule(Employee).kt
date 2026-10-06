@@ -4,6 +4,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,15 +19,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.gastrack.data.remote.dto.DataActivityLogDto
 import com.example.gastrack.ui.theme.*
+import com.example.gastrack.viewmodel.DataLogUiState
+import com.example.gastrack.viewmodel.DataModuleViewModel
+import com.example.gastrack.viewmodel.ExportState
 
 enum class DataTab {
     EXPORT, EXPORT_LOGS, IMPORT, IMPORT_LOGS
@@ -34,9 +41,31 @@ enum class DataTab {
 
 @Composable
 fun DataModuleEmployeeScreen(
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    dataModuleViewModel: DataModuleViewModel = viewModel()
 ) {
-    var selectedTab by remember { mutableStateOf(_root_ide_package_.com.example.gastrack.ui.presentation.DataTab.EXPORT) }
+    var selectedTab by remember { mutableStateOf(DataTab.EXPORT) }
+
+    val exportState by dataModuleViewModel.exportState.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(exportState) {
+        when (val state = exportState) {
+            is ExportState.Success -> {
+                android.widget.Toast.makeText(
+                    context,
+                    "Saved to ${state.filePath}",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+                dataModuleViewModel.resetExportState()
+            }
+            is ExportState.Error -> {
+                android.widget.Toast.makeText(context, state.message, android.widget.Toast.LENGTH_LONG).show()
+                dataModuleViewModel.resetExportState()
+            }
+            else -> {}
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -87,34 +116,10 @@ fun DataModuleEmployeeScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    _root_ide_package_.com.example.gastrack.ui.presentation.DataTabItem(
-                        "Export",
-                        selectedTab == _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.EXPORT
-                    ) {
-                        selectedTab =
-                            _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.EXPORT
-                    }
-                    _root_ide_package_.com.example.gastrack.ui.presentation.DataTabItem(
-                        "Export Logs",
-                        selectedTab == _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.EXPORT_LOGS
-                    ) {
-                        selectedTab =
-                            _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.EXPORT_LOGS
-                    }
-                    _root_ide_package_.com.example.gastrack.ui.presentation.DataTabItem(
-                        "Import",
-                        selectedTab == _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.IMPORT
-                    ) {
-                        selectedTab =
-                            _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.IMPORT
-                    }
-                    _root_ide_package_.com.example.gastrack.ui.presentation.DataTabItem(
-                        "Import Logs",
-                        selectedTab == _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.IMPORT_LOGS
-                    ) {
-                        selectedTab =
-                            _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.IMPORT_LOGS
-                    }
+                    DataTabItem("Export", selectedTab == DataTab.EXPORT) { selectedTab = DataTab.EXPORT }
+                    DataTabItem("Export Logs", selectedTab == DataTab.EXPORT_LOGS) { selectedTab = DataTab.EXPORT_LOGS }
+                    DataTabItem("Import", selectedTab == DataTab.IMPORT) { selectedTab = DataTab.IMPORT }
+                    DataTabItem("Import Logs", selectedTab == DataTab.IMPORT_LOGS) { selectedTab = DataTab.IMPORT_LOGS }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -122,18 +127,13 @@ fun DataModuleEmployeeScreen(
 
         Crossfade(targetState = selectedTab, label = "DataTabTransition") { tab ->
             when (tab) {
-                _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.EXPORT -> _root_ide_package_.com.example.gastrack.ui.presentation.ExportImportContent(
-                    isExport = true
+                DataTab.EXPORT -> ExportContent(
+                    dataModuleViewModel = dataModuleViewModel,
+                    isExporting = exportState is ExportState.Loading
                 )
-                _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.IMPORT -> _root_ide_package_.com.example.gastrack.ui.presentation.ExportImportContent(
-                    isExport = false
-                )
-                _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.EXPORT_LOGS -> _root_ide_package_.com.example.gastrack.ui.presentation.LogsContent(
-                    isExportLogs = true
-                )
-                _root_ide_package_.com.example.gastrack.ui.presentation.DataTab.IMPORT_LOGS -> _root_ide_package_.com.example.gastrack.ui.presentation.LogsContent(
-                    isExportLogs = false
-                )
+                DataTab.IMPORT -> ImportComingSoonContent()
+                DataTab.EXPORT_LOGS -> LogsContent(dataModuleViewModel = dataModuleViewModel, activityType = "Export")
+                DataTab.IMPORT_LOGS -> LogsContent(dataModuleViewModel = dataModuleViewModel, activityType = "Import")
             }
         }
     }
@@ -158,14 +158,26 @@ fun DataTabItem(text: String, isSelected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun ExportImportContent(isExport: Boolean) {
+fun ExportContent(
+    dataModuleViewModel: DataModuleViewModel,
+    isExporting: Boolean
+) {
+    var dataType by remember { mutableStateOf("Sales") }
+    var range by remember { mutableStateOf("Today") }
+    var dataTypeExpanded by remember { mutableStateOf(false) }
+    var rangeExpanded by remember { mutableStateOf(false) }
+
+    val dataTypes = listOf("Sales", "Inventory")
+    val ranges = listOf("Today", "Week", "Month")
+    val rangeLabel = mapOf("Today" to "Today", "Week" to "This Week", "Month" to "This Month")
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp)
     ) {
         Text(
-            text = if (isExport) "Data Export" else "Data Import",
+            text = "Data Export",
             fontSize = 24.sp,
             fontWeight = FontWeight.Black,
             color = TextDark
@@ -180,23 +192,31 @@ fun ExportImportContent(isExport: Boolean) {
             border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
-                // Data Type Dropdown
-                _root_ide_package_.com.example.gastrack.ui.presentation.DataOptionField(
+                DataDropdownField(
                     label = "DATA TYPE",
-                    value = "Sales Data"
+                    value = dataType,
+                    options = dataTypes,
+                    expanded = dataTypeExpanded,
+                    onExpandedChange = { dataTypeExpanded = it },
+                    onSelect = { dataType = it; dataTypeExpanded = false }
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Data Range Dropdown
-                _root_ide_package_.com.example.gastrack.ui.presentation.DataOptionField(
+                DataDropdownField(
                     label = "DATA RANGE",
-                    value = "Today"
+                    value = rangeLabel[range] ?: range,
+                    options = ranges.map { rangeLabel[it] ?: it },
+                    expanded = rangeExpanded,
+                    onExpandedChange = { rangeExpanded = it },
+                    onSelect = { selectedLabel ->
+                        range = ranges.first { (rangeLabel[it] ?: it) == selectedLabel }
+                        rangeExpanded = false
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Status Box
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     color = Color(0xFFF1F3F4).copy(alpha = 0.5f),
@@ -207,20 +227,20 @@ fun ExportImportContent(isExport: Boolean) {
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
-                            imageVector = if (isExport) Icons.Default.Description else Icons.Default.FileUpload,
+                            imageVector = Icons.Default.Description,
                             contentDescription = null,
                             modifier = Modifier.size(48.dp),
                             tint = TextDark
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = if (isExport) "Ready to Export" else "Ready to Import",
+                            text = "Ready to Export",
                             fontWeight = FontWeight.Black,
                             fontSize = 18.sp,
                             color = TextDark
                         )
                         Text(
-                            text = "Select your preferred format to download",
+                            text = "Generates a real CSV from your database",
                             fontSize = 12.sp,
                             color = TextGray,
                             textAlign = TextAlign.Center
@@ -228,25 +248,20 @@ fun ExportImportContent(isExport: Boolean) {
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Button(
+                            onClick = { dataModuleViewModel.exportData(dataType, range) },
+                            enabled = !isExporting,
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            _root_ide_package_.com.example.gastrack.ui.presentation.FormatButton(
-                                "CSV",
-                                Icons.Default.FileDownload,
-                                Modifier.weight(1f)
-                            )
-                            _root_ide_package_.com.example.gastrack.ui.presentation.FormatButton(
-                                "Excel",
-                                Icons.Default.TableChart,
-                                Modifier.weight(1f)
-                            )
-                            _root_ide_package_.com.example.gastrack.ui.presentation.FormatButton(
-                                "PDF",
-                                Icons.Default.PictureAsPdf,
-                                Modifier.weight(1f)
-                            )
+                            if (isExporting) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Export as CSV", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
                         }
                     }
                 }
@@ -256,7 +271,14 @@ fun ExportImportContent(isExport: Boolean) {
 }
 
 @Composable
-fun DataOptionField(label: String, value: String) {
+fun DataDropdownField(
+    label: String,
+    value: String,
+    options: List<String>,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onSelect: (String) -> Unit
+) {
     Column {
         Text(
             text = label,
@@ -266,86 +288,63 @@ fun DataOptionField(label: String, value: String) {
             letterSpacing = 1.sp
         )
         Spacer(modifier = Modifier.height(8.dp))
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = Color(0xFFF1F3F4),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+        Box {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onExpandedChange(!expanded) },
+                color = Color(0xFFF1F3F4),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Text(text = value, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = value, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                }
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+                options.forEach { option ->
+                    DropdownMenuItem(text = { Text(option) }, onClick = { onSelect(option) })
+                }
             }
         }
     }
 }
 
 @Composable
-fun FormatButton(label: String, icon: ImageVector, modifier: Modifier = Modifier) {
-    OutlinedButton(
-        onClick = {},
-        modifier = modifier.height(40.dp),
-        shape = RoundedCornerShape(8.dp),
-        contentPadding = PaddingValues(horizontal = 8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray)
+fun ImportComingSoonContent() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = TextDark)
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(label, fontSize = 11.sp, color = TextDark, fontWeight = FontWeight.Bold)
-        }
+        Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(56.dp), tint = Color.LightGray)
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Bulk Import Not Yet Available", fontWeight = FontWeight.Black, fontSize = 18.sp, color = TextDark)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Importing data requires file upload, parsing, and validation on the server. This hasn't been built yet.",
+            fontSize = 13.sp,
+            color = TextGray,
+            textAlign = TextAlign.Center
+        )
     }
 }
 
 @Composable
-fun LogsContent(isExportLogs: Boolean) {
-    val logs = listOf(
-        _root_ide_package_.com.example.gastrack.ui.presentation.DataLog(
-            "sales.xlsx",
-            "Sales",
-            "2026-05-15",
-            3,
-            true
-        ),
-        _root_ide_package_.com.example.gastrack.ui.presentation.DataLog(
-            "inventory.csv",
-            "Inventory",
-            "2026-05-18",
-            0,
-            false
-        ),
-        _root_ide_package_.com.example.gastrack.ui.presentation.DataLog(
-            "inventory.csv",
-            "Inventory",
-            "2026-05-15",
-            0,
-            true
-        ),
-        _root_ide_package_.com.example.gastrack.ui.presentation.DataLog(
-            "gasulpetron.csv",
-            "Sales",
-            "2026-05-15",
-            0,
-            true
-        ),
-        _root_ide_package_.com.example.gastrack.ui.presentation.DataLog(
-            "pos.pdf",
-            "Inventory",
-            "2026-05-15",
-            0,
-            false
-        )
-    )
+fun LogsContent(dataModuleViewModel: DataModuleViewModel, activityType: String) {
+    val uiState by dataModuleViewModel.logState.collectAsState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp)
     ) {
-        // Validation History Header
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = Color(0xFFF1F3F4),
@@ -359,7 +358,7 @@ fun LogsContent(isExportLogs: Boolean) {
                 Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFF57C00), modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = if (isExportLogs) "Data Export Validation History" else "Data Import Validation History",
+                    text = "Data $activityType Validation History",
                     fontWeight = FontWeight.Black,
                     fontSize = 15.sp,
                     color = TextDark
@@ -369,28 +368,59 @@ fun LogsContent(isExportLogs: Boolean) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(logs) { log ->
-                _root_ide_package_.com.example.gastrack.ui.presentation.LogCard(log)
+        when (val state = uiState) {
+            is DataLogUiState.Loading -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = StaffPortalButtonBlue)
+                }
+            }
+            is DataLogUiState.Error -> {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(top = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = GasTrackRed, modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Couldn't load logs", fontWeight = FontWeight.Black)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(state.message, fontSize = 12.sp, color = TextGray)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { dataModuleViewModel.loadLogs() }, colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue)) {
+                        Text("Retry")
+                    }
+                }
+            }
+            is DataLogUiState.Success -> {
+                val filtered = state.logs.filter { it.activityType == activityType || it.activityType == "Generate Report" && activityType == "Export" }
+                if (filtered.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No $activityType activity yet", color = TextGray)
+                    }
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(filtered, key = { it.logId }) { log ->
+                            LogCard(log)
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-data class DataLog(val filename: String, val type: String, val date: String, val errors: Int, val success: Boolean)
-
 @Composable
-fun LogCard(log: com.example.gastrack.ui.presentation.DataLog) {
-    var expanded by remember { mutableStateOf(log.filename == "sales.xlsx" && log.success) }
+fun LogCard(log: DataActivityLogDto) {
+    var expanded by remember { mutableStateOf(false) }
+    val isSuccess = log.status == "Successful"
 
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
+        border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -401,15 +431,15 @@ fun LogCard(log: com.example.gastrack.ui.presentation.DataLog) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text(text = log.filename, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(text = log.fileName ?: "Log #${log.logId}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
 
                 Surface(
-                    color = if (log.success) Color(0xFF4CAF50) else Color(0xFFE57373),
+                    color = if (isSuccess) Color(0xFF4CAF50) else Color(0xFFE57373),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = if (log.success) "SUCCESS" else "FAILED",
+                        text = log.status?.uppercase() ?: "UNKNOWN",
                         color = Color.White,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
@@ -421,22 +451,9 @@ fun LogCard(log: com.example.gastrack.ui.presentation.DataLog) {
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                _root_ide_package_.com.example.gastrack.ui.presentation.LogDetailItem(
-                    "TYPE",
-                    log.type,
-                    Modifier.weight(1f)
-                )
-                _root_ide_package_.com.example.gastrack.ui.presentation.LogDetailItem(
-                    "DATE",
-                    log.date,
-                    Modifier.weight(1.5f)
-                )
-                _root_ide_package_.com.example.gastrack.ui.presentation.LogDetailItem(
-                    "ERRORS",
-                    log.errors.toString(),
-                    Modifier.weight(1f),
-                    isError = log.errors > 0
-                )
+                LogDetailItem("TYPE", log.dataType ?: "—", Modifier.weight(1f))
+                LogDetailItem("FORMAT", log.fileFormat ?: "—", Modifier.weight(1f))
+                LogDetailItem("DATE", log.activityDate.take(10), Modifier.weight(1.5f))
 
                 IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(24.dp)) {
                     Icon(
@@ -447,37 +464,26 @@ fun LogCard(log: com.example.gastrack.ui.presentation.DataLog) {
             }
 
             if (expanded) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = {},
-                        modifier = Modifier.weight(1f).height(36.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = StaffPortalBlue),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("View Errors", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Button(
-                        onClick = {},
-                        modifier = Modifier.weight(1f).height(36.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Error Report", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Activity: ${log.activityType ?: "—"}",
+                    fontSize = 12.sp,
+                    color = TextGray
+                )
+                if (log.dateFrom != null && log.dateTo != null) {
+                    Text(
+                        text = "Covers: ${log.dateFrom.take(10)} to ${log.dateTo.take(10)}",
+                        fontSize = 12.sp,
+                        color = TextGray
+                    )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    onClick = {},
-                    modifier = Modifier.fillMaxWidth().height(36.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("Retry Export", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
+                Text(
+                    text = "By ${log.firstName} ${log.lastName}",
+                    fontSize = 12.sp,
+                    color = TextGray
+                )
             }
         }
     }
@@ -499,5 +505,5 @@ fun LogDetailItem(label: String, value: String, modifier: Modifier = Modifier, i
 @Preview(showBackground = true)
 @Composable
 fun DataModuleEmployeeScreenPreview() {
-    _root_ide_package_.com.example.gastrack.ui.presentation.DataModuleEmployeeScreen()
+    DataModuleEmployeeScreen()
 }
