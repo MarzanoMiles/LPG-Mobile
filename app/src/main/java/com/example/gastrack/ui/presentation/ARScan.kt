@@ -63,13 +63,15 @@ import io.github.sceneview.rememberOnGestureListener
 import io.github.sceneview.rememberView
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
+import android.util.Log
 
 private class FrameHolder { var frame: Frame? = null }
 
 @Composable
 fun ARScanScreen(
     tankType: GasTankType,
-    onScanComplete: () -> Unit
+    onScanComplete: () -> Unit,
+    onArCoreFailed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var hasCameraPermission by remember {
@@ -88,7 +90,7 @@ fun ARScanScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (hasCameraPermission) {
-            ArCoreGate(tankType = tankType, onScanComplete = onScanComplete)
+            ArCoreGate(tankType = tankType, onScanComplete = onScanComplete, onArCoreFailed = onArCoreFailed)
         } else {
             CenterMessage(
                 message = "Camera permission is required\nto use AR hazard scanning.",
@@ -101,7 +103,7 @@ fun ARScanScreen(
 
 /** Checks ARCore availability before creating the AR session so we never crash on unsupported devices. */
 @Composable
-private fun ArCoreGate(tankType: GasTankType, onScanComplete: () -> Unit) {
+private fun ArCoreGate(tankType: GasTankType, onScanComplete: () -> Unit, onArCoreFailed: () -> Unit) {
     val context = LocalContext.current
     var recheck by remember { mutableIntStateOf(0) }
     var availability by remember { mutableStateOf<ArCoreApk.Availability?>(null) }
@@ -121,7 +123,7 @@ private fun ArCoreGate(tankType: GasTankType, onScanComplete: () -> Unit) {
     when (val a = availability) {
         null -> CenterMessage("Checking AR support…")
         ArCoreApk.Availability.SUPPORTED_INSTALLED ->
-            ArPlacementContent(tankType = tankType, onScanComplete = onScanComplete)
+            ArPlacementContent(tankType = tankType, onScanComplete = onScanComplete, onArCoreFailed = onArCoreFailed)
         else -> if (a.isSupported) {
             CenterMessage(
                 message = "Google Play Services for AR (ARCore)\nneeds to be installed or updated.",
@@ -139,7 +141,7 @@ private fun ArCoreGate(tankType: GasTankType, onScanComplete: () -> Unit) {
 }
 
 @Composable
-private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit) {
+private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit, onArCoreFailed: () -> Unit) {
     val context = LocalContext.current
 
     // --- AR scene state ---
@@ -174,6 +176,10 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
                 config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
                 config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
                 config.focusMode = Config.FocusMode.AUTO
+            },
+            onSessionFailed = { e ->
+                Log.e("ARScan", "ARCore session failed", e)
+                onArCoreFailed()
             },
             onSessionUpdated = { session, updatedFrame ->
                 frameHolder.frame = updatedFrame
@@ -381,7 +387,8 @@ private fun createTankAnchorNode(
     ).apply {
         isPositionEditable = true
         isRotationEditable = true
-        isScaleEditable = false   // keep real-world size; set true if you want pinch-to-scale
+        isScaleEditable = ALLOW_PINCH_RESIZE
+        //isScaleEditable = false   // keep real-world size; set true if you want pinch-to-scale
     }
     anchorNode.addChildNode(modelNode)
     return anchorNode
