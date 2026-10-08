@@ -191,7 +191,8 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
             sessionConfiguration = { _, config ->
                 config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
                 config.instantPlacementMode = Config.InstantPlacementMode.LOCAL_Y_UP
-                config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
+             // config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR //Some phones handle the HDR lighting badly, and the model can come out nearly black. If the tank shows up with this change, leave it at DISABLED.
+                config.lightEstimationMode = Config.LightEstimationMode.DISABLED //comment this laterr
                 config.focusMode = Config.FocusMode.AUTO
             },
             onSessionFailed = { e ->
