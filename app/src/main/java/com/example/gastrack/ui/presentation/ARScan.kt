@@ -64,8 +64,11 @@ import io.github.sceneview.rememberView
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 import android.util.Log
-
-private class FrameHolder { var frame: Frame? = null }
+import com.google.ar.core.Session
+private class FrameHolder {
+    var frame: Frame? = null
+    var session: Session? = null
+}
 
 @Composable
 fun ARScanScreen(
@@ -155,7 +158,20 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
 
     var hasPlane by remember { mutableStateOf(false) }
     var placementError by remember { mutableStateOf<String?>(null) }
+    var tapHint by remember { mutableStateOf<String?>(null) }
     val isPlaced = childNodes.isNotEmpty()
+    val placeAnchor: (Anchor) -> Unit = { anchor ->
+        try {
+            childNodes += createTankAnchorNode(engine, modelLoader, anchor, tankType)
+            placementError = null
+            tapHint = null
+            Log.i("ARScan", "placed ${tankType.label}")
+        } catch (t: Throwable) {
+            Log.e("ARScan", "Model placement failed", t)
+            anchor.detach()
+            placementError = "Could not load the ${tankType.label} model."
+        }
+    }
 
     // --- Hazard detection (created once, released on dispose) ---
     val analyzer = remember { HazardAnalyzer(context) }
@@ -174,6 +190,7 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
             planeRenderer = !isPlaced,
             sessionConfiguration = { _, config ->
                 config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
+                config.instantPlacementMode = Config.InstantPlacementMode.LOCAL_Y_UP
                 config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR
                 config.focusMode = Config.FocusMode.AUTO
             },
@@ -183,6 +200,7 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
             },
             onSessionUpdated = { session, updatedFrame ->
                 frameHolder.frame = updatedFrame
+                frameHolder.session = session
                 hasPlane = session.getAllTrackables(Plane::class.java).any {
                     it.trackingState == TrackingState.TRACKING && it.subsumedBy == null
                 }
@@ -191,18 +209,23 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
             onGestureListener = rememberOnGestureListener(
                 onSingleTapConfirmed = { motionEvent, node ->
                     if (node == null && childNodes.isEmpty()) {
-                        val anchor = frameHolder.frame
+                        val frame = frameHolder.frame
+                        var anchor = frame
                             ?.hitTest(motionEvent.x, motionEvent.y)
                             ?.firstOrNull { it.isValid(depthPoint = false, point = false) }
                             ?.createAnchorOrNull()
+                        if (anchor == null) {
+                            // No surface under the finger: fall back to instant placement 1.5 m ahead
+                            anchor = frame
+                                ?.hitTestInstantPlacement(motionEvent.x, motionEvent.y, 1.5f)
+                                ?.firstOrNull()
+                                ?.createAnchorOrNull()
+                        }
                         if (anchor != null) {
-                            try {
-                                childNodes += createTankAnchorNode(engine, modelLoader, anchor, tankType)
-                                placementError = null
-                            } catch (t: Throwable) {
-                                anchor.detach()
-                                placementError = "Could not load the ${tankType.label} model."
-                            }
+                            placeAnchor(anchor)
+                        } else {
+                            Log.i("ARScan", "tap found nothing to place on")
+                            tapHint = "No surface at that spot. Tap on the dotted grid, or use Place on floor"
                         }
                     }
                 }
@@ -261,7 +284,7 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            val hint = placementError ?: when {
+            val hint = placementError ?: tapHint ?: when {
                 isPlaced -> "Drag to move · Twist to rotate"
                 hasPlane -> "Surface found — tap to place the ${tankType.label} cylinder"
                 else -> "Move your phone slowly to detect the floor or a table"
@@ -277,6 +300,17 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (!isPlaced && hasPlane) {
+                    Button(
+                        onClick = {
+                            val plane = largestFloorPlane(frameHolder.session)
+                            val anchor = plane?.createAnchor(plane.centerPose)
+                            if (anchor != null) placeAnchor(anchor)
+                            else tapHint = "No floor found yet. Keep sweeping the phone slowly"
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = GasTrackBlue)
+                    ) { Text("Place on floor", color = Color.White, fontWeight = FontWeight.Bold) }
+                }
                 OutlinedButton(
                     onClick = { clearPlacement(childNodes) },
                     enabled = isPlaced,
@@ -401,6 +435,15 @@ private fun clearPlacement(nodes: MutableList<Node>) {
     }
     nodes.clear()
 }
+
+private fun largestFloorPlane(session: Session?): Plane? =
+    session?.getAllTrackables(Plane::class.java)
+        ?.filter {
+            it.trackingState == TrackingState.TRACKING &&
+                    it.subsumedBy == null &&
+                    it.type == Plane.Type.HORIZONTAL_UPWARD_FACING
+        }
+        ?.maxByOrNull { it.extentX * it.extentZ }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
