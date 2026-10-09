@@ -191,8 +191,8 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
             sessionConfiguration = { _, config ->
                 config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
                 config.instantPlacementMode = Config.InstantPlacementMode.LOCAL_Y_UP
-             // config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR //Some phones handle the HDR lighting badly, and the model can come out nearly black. If the tank shows up with this change, leave it at DISABLED.
-                config.lightEstimationMode = Config.LightEstimationMode.DISABLED //comment this laterr
+                config.lightEstimationMode = Config.LightEstimationMode.ENVIRONMENTAL_HDR //Some phones handle the HDR lighting badly, and the model can come out nearly black. If the tank shows up with this change, leave it at DISABLED.
+               // config.lightEstimationMode = Config.LightEstimationMode.DISABLED //comment this laterr
                 config.focusMode = Config.FocusMode.AUTO
             },
             onSessionFailed = { e ->
@@ -286,7 +286,7 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val hint = placementError ?: tapHint ?: when {
-                isPlaced -> "Drag to move · Twist to rotate"
+                isPlaced -> "Drag to move · Twist to rotate · Pinch to resize"
                 hasPlane -> "Surface found — tap to place the ${tankType.label} cylinder"
                 else -> "Move your phone slowly to detect the floor or a table"
             }
