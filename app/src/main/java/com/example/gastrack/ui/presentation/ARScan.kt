@@ -53,7 +53,6 @@ import com.google.ar.core.ArCoreApk
 import com.google.ar.core.Config
 import com.google.ar.core.DepthPoint
 import com.google.ar.core.Frame
-import com.google.ar.core.HitResult
 import com.google.ar.core.Plane
 import com.google.ar.core.Point
 import com.google.ar.core.Pose
@@ -74,13 +73,17 @@ import io.github.sceneview.rememberNodes
 import io.github.sceneview.rememberView
 import kotlinx.coroutines.delay
 import kotlin.math.abs
+import kotlin.math.acos
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 private const val AR_TAG = "ARScan"
 
-/** Depth mode makes taps hit real surfaces much sooner (the Infinix Note 30 supports it). */
-private const val USE_DEPTH = true
+/**
+ * Depth mode costs CPU and gave noisy surface points on the Infinix Note 30, so it is off by default.
+ * Set to true if floor detection feels too slow and the phone stays smooth.
+ */
+private const val USE_DEPTH = false
 
 /** If the tank looks too dark on some phone, try Config.LightEstimationMode.DISABLED here. */
 private val ARCORE_LIGHT_MODE = Config.LightEstimationMode.ENVIRONMENTAL_HDR
@@ -166,7 +169,9 @@ private class ArHolder {
     var frame: Frame? = null
     var session: Session? = null
     var anchorNode: AnchorNode? = null
-    var modelHolder: Node? = null   // parent of the model: carries the user's spin and size
+    var modelHolder: Node? = null   // parent of the model: carries the user's spin, size and floor offset
+    var lockPlane: Plane? = null    // the surface the tank was placed on (if known)
+    var floorOffset = 0f            // eased height correction so the base sits on the floor
     var frameCount = 0
     var floorY: Float? = null       // world height of the biggest detected floor
 }
@@ -187,7 +192,7 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
     // --- UI state ---
     var hasPlane by remember { mutableStateOf(false) }
     var isPlaced by remember { mutableStateOf(false) }
-    var provisional by remember { mutableStateOf(false) } // placed without a real surface, will snap to the floor
+    var provisional by remember { mutableStateOf(false) } // placed without a real surface; settles onto the floor
     var placementError by remember { mutableStateOf<String?>(null) }
     var tapHint by remember { mutableStateOf<String?>(null) }
     var yaw by remember { mutableFloatStateOf(0f) }
@@ -235,26 +240,34 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
         }
     }
 
-    fun placeAnchor(anchor: Anchor, wasProvisional: Boolean) {
+    fun placeAnchor(anchor: Anchor, wasProvisional: Boolean, via: String) {
         try {
             val anchorNode = AnchorNode(engine = engine, anchor = anchor)
             val modelNode = ModelNode(
                 modelInstance = modelLoader.createModelInstance(assetFileLocation = tankType.assetPath),
                 scaleToUnits = tankType.realHeightMeters,
-                centerOrigin = Position(x = 0f, y = -1f, z = 0f)
+                centerOrigin = Position(x = 0f, y = -1f, z = 0f)   // base of the tank at the node origin
             )
             val modelHolder = Node(engine = engine)
             modelHolder.addChildNode(modelNode)
             anchorNode.addChildNode(modelHolder)
             holder.anchorNode = anchorNode
             holder.modelHolder = modelHolder
+            holder.floorOffset = 0f
             childNodes += anchorNode
             isPlaced = true
             provisional = wasProvisional
             placementError = null
             tapHint = null
             applyUserTransform()
-            Log.i(AR_TAG, "placed ${tankType.label} (provisional=$wasProvisional)")
+
+            val up = anchor.pose.getTransformedAxis(1, 1f)
+            val tilt = Math.toDegrees(acos(up[1].coerceIn(-1f, 1f).toDouble())).roundToInt()
+            Log.i(
+                AR_TAG,
+                "placed ${tankType.label} via=$via provisional=$wasProvisional tilt=$tilt° " +
+                        "anchorY=${anchor.pose.ty()} floorY=${holder.floorY}"
+            )
         } catch (t: Throwable) {
             Log.e(AR_TAG, "Model placement failed", t)
             try { anchor.detach() } catch (_: Throwable) { }
@@ -270,6 +283,8 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
         childNodes.clear()
         holder.anchorNode = null
         holder.modelHolder = null
+        holder.lockPlane = null
+        holder.floorOffset = 0f
         isPlaced = false
         provisional = false
         yaw = 0f
@@ -285,21 +300,68 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
             tapHint = "AR is still starting. Try again in a moment"
             return
         }
-        // 1) a real surface under the tap
-        val hit = pickHit(frame, x, y)
-        val hitAnchor = try { hit?.createAnchor() } catch (t: Throwable) { null }
-        if (hitAnchor != null) {
-            placeAnchor(hitAnchor, false)
+        val ray = cameraRay(frame, x, y, viewSize.width, viewSize.height)
+        val hits = frame.hitTest(x, y)
+
+        var position: FloatArray? = null
+        var plane: Plane? = null
+        var via = ""
+
+        // 1) a real horizontal surface under the finger
+        for (h in hits) {
+            val t = h.trackable
+            if (t is Plane && t.type == Plane.Type.HORIZONTAL_UPWARD_FACING && t.isPoseInPolygon(h.hitPose)) {
+                position = h.hitPose.translation
+                plane = resolvePlane(t)
+                via = "plane-hit"
+                break
+            }
+        }
+        // 2) a floor was found elsewhere: use its height along the tap ray (floors are flat)
+        if (position == null && ray != null) {
+            val floor = largestFloorPlane(session)
+            if (floor != null) {
+                val p = intersectHorizontal(ray, floor.centerPose.ty())
+                if (p != null) {
+                    position = p
+                    plane = floor
+                    via = "floor-ray"
+                }
+            }
+        }
+        // 3) a feature/depth point under the finger: position only, never its (noisy) orientation
+        if (position == null) {
+            for (h in hits) {
+                val t = h.trackable
+                if (t is DepthPoint || (t is Point && t.orientationMode == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL)) {
+                    position = h.hitPose.translation
+                    via = "point"
+                    break
+                }
+            }
+        }
+        // 4) nothing known yet: an estimated floor in front of the camera
+        if (position == null && ray != null) {
+            val ground = ray[1] - ASSUMED_PHONE_HEIGHT_M
+            position = intersectHorizontal(ray, ground) ?: pointAhead(ray, ground)
+            via = "estimated"
+        }
+        if (position == null) {
+            tapHint = "Tracking hasn't started yet. Move the phone slowly and try again"
             return
         }
-        // 2) no surface yet: a free anchor ahead of the camera. It snaps to the floor once one is found.
-        val pose = freePose(frame, x, y, viewSize.width, viewSize.height, holder.floorY)
-        val freeAnchor = try { if (pose != null) session.createAnchor(pose) else null } catch (t: Throwable) { null }
-        if (freeAnchor != null) {
-            placeAnchor(freeAnchor, true)
-        } else {
-            tapHint = "Tracking hasn't started yet. Move the phone slowly and try again"
+
+        // Always an upright anchor (identity rotation = ARCore's gravity-aligned world)
+        val pose = Pose(position, floatArrayOf(0f, 0f, 0f, 1f))
+        val anchor: Anchor? =
+            (try { plane?.createAnchor(pose) } catch (t: Throwable) { null })
+                ?: (try { session.createAnchor(pose) } catch (t: Throwable) { null })
+        if (anchor == null) {
+            tapHint = "Could not place here. Move the phone slowly and try again"
+            return
         }
+        holder.lockPlane = plane
+        placeAnchor(anchor, wasProvisional = plane == null, via = via)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -329,37 +391,30 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
                 holder.session = session
                 holder.frameCount++
 
-                if (holder.frameCount % 10 == 0) {
+                if (holder.frameCount % 5 == 0) {
                     val floor = largestFloorPlane(session)
                     hasPlane = floor != null
                     holder.floorY = floor?.centerPose?.ty()
 
-                    // Snap a "provisional" tank onto the floor once one is detected
+                    // Floor lock: ease the tank's base onto the real floor / the surface it was placed on
                     val node = holder.anchorNode
                     val modelHolder = holder.modelHolder
-                    if (provisional && floor != null && node != null && modelHolder != null) {
-                        val old = node.anchor
-                        if (old.trackingState == TrackingState.TRACKING) {
-                            val p = old.pose
-                            val floorY = floor.centerPose.ty()
-                            if (abs(floorY - p.ty()) < 0.8f) {
-                                try {
-                                    val newAnchor = session.createAnchor(
-                                        Pose(floatArrayOf(p.tx(), floorY, p.tz()), floatArrayOf(0f, 0f, 0f, 1f))
-                                    )
-                                    val newNode = AnchorNode(engine = engine, anchor = newAnchor)
-                                    node.removeChildNode(modelHolder)
-                                    newNode.addChildNode(modelHolder)
-                                    childNodes.remove(node)
-                                    old.detach()
-                                    node.destroy()
-                                    childNodes += newNode
-                                    holder.anchorNode = newNode
+                    if (node != null && modelHolder != null &&
+                        updatedFrame.camera.trackingState == TrackingState.TRACKING &&
+                        node.anchor.trackingState == TrackingState.TRACKING
+                    ) {
+                        val lock = holder.lockPlane?.let { trackingPlane(it) } ?: floor
+                        if (lock != null) {
+                            val desired = lock.centerPose.ty() - node.anchor.pose.ty()
+                            if (abs(desired) < 1.0f) {
+                                val next = holder.floorOffset + (desired - holder.floorOffset) * 0.2f
+                                if (abs(next - holder.floorOffset) > 0.0005f) {
+                                    holder.floorOffset = next
+                                    modelHolder.position = Position(0f, next, 0f)
+                                }
+                                if (provisional && abs(desired - next) < 0.02f) {
                                     provisional = false
-                                    applyUserTransform()
-                                    Log.i(AR_TAG, "snapped the tank onto the detected floor (y=$floorY)")
-                                } catch (t: Throwable) {
-                                    Log.w(AR_TAG, "snap to floor failed", t)
+                                    Log.i(AR_TAG, "settled onto the floor (offset=$next)")
                                 }
                             }
                         }
@@ -472,7 +527,7 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val hint = placementError ?: tapHint ?: when {
-                isPlaced && provisional -> "Placed without a floor. Move slowly and it will snap to the floor when found"
+                isPlaced && provisional -> "Placed on an estimated floor. Keep sweeping slowly and it will settle onto the real floor"
                 isPlaced -> "Drag or twist to rotate · Pinch to resize"
                 hasPlane -> "Floor found. Tap to place, or press Place here"
                 scanSeconds >= 3 -> "Still scanning… tap anywhere to place now, or keep sweeping slowly"
@@ -546,26 +601,8 @@ private fun PinchCoach(modifier: Modifier = Modifier) {
     }
 }
 
-/** Best hit under the finger: a detected horizontal plane first, then depth/feature points. */
-private fun pickHit(frame: Frame, x: Float, y: Float): HitResult? {
-    val hits = frame.hitTest(x, y)
-    for (h in hits) {
-        val t = h.trackable
-        if (t is Plane && t.type == Plane.Type.HORIZONTAL_UPWARD_FACING && t.isPoseInPolygon(h.hitPose)) return h
-    }
-    for (h in hits) {
-        val t = h.trackable
-        if (t is DepthPoint) return h
-        if (t is Point && t.orientationMode == Point.OrientationMode.ESTIMATED_SURFACE_NORMAL) return h
-    }
-    return null
-}
-
-/**
- * A pose on the estimated floor along the tap ray. Used when no surface has been detected yet.
- * The floor height is the real one if a floor was already seen, otherwise the phone height minus a guess.
- */
-private fun freePose(frame: Frame, x: Float, y: Float, w: Int, h: Int, floorY: Float?): Pose? {
+/** The ray through a screen point: [originX, originY, originZ, dirX, dirY, dirZ] in ARCore world space. */
+private fun cameraRay(frame: Frame, x: Float, y: Float, w: Int, h: Int): FloatArray? {
     if (w <= 0 || h <= 0) return null
     val cam = frame.camera
     if (cam.trackingState != TrackingState.TRACKING) return null
@@ -594,30 +631,40 @@ private fun freePose(frame: Frame, x: Float, y: Float, w: Int, h: Int, floorY: F
     val len = sqrt(dx * dx + dy * dy + dz * dz)
     if (len < 1e-6f) return null
     dx /= len; dy /= len; dz /= len
-
     val t = cam.pose.translation
-    val ox = t[0]; val oy = t[1]; val oz = t[2]
-    val planeY = floorY ?: (oy - ASSUMED_PHONE_HEIGHT_M)
+    return floatArrayOf(t[0], t[1], t[2], dx, dy, dz)
+}
 
-    var px: Float
-    var pz: Float
-    if (dy < -0.05f) {
-        val d = (planeY - oy) / dy
-        if (d in 0.3f..6f) {
-            px = ox + dx * d
-            pz = oz + dz * d
-        } else {
-            px = ox + dx * 1.5f
-            pz = oz + dz * 1.5f
-        }
-    } else {
-        // not looking downward: put it 1.5 m ahead on the estimated floor level
-        val hl = sqrt(dx * dx + dz * dz)
-        if (hl < 1e-3f) return null
-        px = ox + dx / hl * 1.5f
-        pz = oz + dz / hl * 1.5f
+/** Where the ray meets the horizontal plane y = planeY (only if it points downward and is not too far). */
+private fun intersectHorizontal(ray: FloatArray, planeY: Float): FloatArray? {
+    val dy = ray[4]
+    if (dy > -0.03f) return null
+    val d = (planeY - ray[1]) / dy
+    if (d < 0.25f || d > 8f) return null
+    return floatArrayOf(ray[0] + ray[3] * d, planeY, ray[2] + ray[5] * d)
+}
+
+/** 1.5 m ahead of the camera at the given height (used when the ray doesn't point at the floor). */
+private fun pointAhead(ray: FloatArray, groundY: Float): FloatArray? {
+    val hl = sqrt(ray[3] * ray[3] + ray[5] * ray[5])
+    if (hl < 1e-3f) return null
+    return floatArrayOf(ray[0] + ray[3] / hl * 1.5f, groundY, ray[2] + ray[5] / hl * 1.5f)
+}
+
+/** ARCore merges planes: follow the chain to the plane that is current now. */
+private fun resolvePlane(p: Plane): Plane {
+    var current = p
+    var next = current.subsumedBy
+    while (next != null) {
+        current = next
+        next = current.subsumedBy
     }
-    return Pose(floatArrayOf(px, planeY, pz), floatArrayOf(0f, 0f, 0f, 1f))
+    return current
+}
+
+private fun trackingPlane(p: Plane): Plane? {
+    val r = resolvePlane(p)
+    return if (r.trackingState == TrackingState.TRACKING) r else null
 }
 
 private fun largestFloorPlane(session: Session?): Plane? =
