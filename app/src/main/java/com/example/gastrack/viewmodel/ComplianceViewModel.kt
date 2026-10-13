@@ -8,10 +8,10 @@ import com.example.gastrack.data.remote.dto.ComplianceSummaryDto
 import com.example.gastrack.data.remote.dto.CreateComplianceReportRequest
 import com.example.gastrack.data.repository.ApiResult
 import com.example.gastrack.data.repository.ComplianceRepository
+import com.example.gastrack.util.FileSaver
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import java.io.File
 
 sealed class ComplianceUiState {
     object Loading : ComplianceUiState()
@@ -92,10 +92,8 @@ class ComplianceViewModel(application: Application) : AndroidViewModel(applicati
             when (val result = repository.generateReport(reportId)) {
                 is ApiResult.Success -> {
                     try {
-                        val dir = getApplication<Application>().getExternalFilesDir(null)
-                        val file = File(dir, result.data.fileName)
-                        file.writeText(result.data.csv)
-                        _actionMessage.value = "Saved to ${file.absolutePath}"
+                        val savedPath = FileSaver.saveText(getApplication(), result.data.fileName, result.data.csv)
+                        _actionMessage.value = "Saved to $savedPath"
                     } catch (e: Exception) {
                         _actionMessage.value = "Generated, but couldn't save file: ${e.message}"
                     }

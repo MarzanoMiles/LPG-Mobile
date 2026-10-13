@@ -6,10 +6,10 @@ import androidx.lifecycle.viewModelScope
 import com.example.gastrack.data.remote.dto.DataActivityLogDto
 import com.example.gastrack.data.repository.ApiResult
 import com.example.gastrack.data.repository.DataActivityRepository
+import com.example.gastrack.util.FileSaver
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import java.io.File
 
 sealed class DataLogUiState {
     object Loading : DataLogUiState()
@@ -53,11 +53,10 @@ class DataModuleViewModel(application: Application) : AndroidViewModel(applicati
             when (val result = repository.exportData(dataType, range)) {
                 is ApiResult.Success -> {
                     try {
-                        val dir = getApplication<Application>().getExternalFilesDir(null)
                         val fileName = "${dataType}_${range}_${System.currentTimeMillis()}.csv"
-                        val file = File(dir, fileName)
-                        file.outputStream().use { out -> result.data.byteStream().copyTo(out) }
-                        _exportState.value = ExportState.Success(file.absolutePath)
+                        val bytes = result.data.bytes()
+                        val savedPath = FileSaver.saveBytes(getApplication(), fileName, bytes)
+                        _exportState.value = ExportState.Success(savedPath)
                         loadLogs()
                     } catch (e: Exception) {
                         _exportState.value = ExportState.Error(e.message ?: "Could not save file")

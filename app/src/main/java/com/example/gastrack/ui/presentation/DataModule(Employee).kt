@@ -1,5 +1,7 @@
 package com.example.gastrack.ui.presentation
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
@@ -31,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.gastrack.data.remote.dto.DataActivityLogDto
 import com.example.gastrack.ui.theme.*
+import com.example.gastrack.util.FileSaver
 import com.example.gastrack.viewmodel.DataLogUiState
 import com.example.gastrack.viewmodel.DataModuleViewModel
 import com.example.gastrack.viewmodel.ExportState
@@ -45,9 +48,31 @@ fun DataModuleEmployeeScreen(
     dataModuleViewModel: DataModuleViewModel = viewModel()
 ) {
     var selectedTab by remember { mutableStateOf(DataTab.EXPORT) }
+    var pendingExport by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     val exportState by dataModuleViewModel.exportState.collectAsState()
     val context = LocalContext.current
+
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val pending = pendingExport
+        pendingExport = null
+        if (granted && pending != null) {
+            dataModuleViewModel.exportData(pending.first, pending.second)
+        } else if (!granted) {
+            android.widget.Toast.makeText(context, "Storage permission is needed to save the export", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun requestExport(dataType: String, range: String) {
+        if (FileSaver.needsLegacyPermission()) {
+            pendingExport = dataType to range
+            storagePermissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            dataModuleViewModel.exportData(dataType, range)
+        }
+    }
 
     LaunchedEffect(exportState) {
         when (val state = exportState) {
@@ -128,8 +153,8 @@ fun DataModuleEmployeeScreen(
         Crossfade(targetState = selectedTab, label = "DataTabTransition") { tab ->
             when (tab) {
                 DataTab.EXPORT -> ExportContent(
-                    dataModuleViewModel = dataModuleViewModel,
-                    isExporting = exportState is ExportState.Loading
+                    isExporting = exportState is ExportState.Loading,
+                    onExport = ::requestExport
                 )
                 DataTab.IMPORT -> ImportComingSoonContent()
                 DataTab.EXPORT_LOGS -> LogsContent(dataModuleViewModel = dataModuleViewModel, activityType = "Export")
@@ -159,8 +184,8 @@ fun DataTabItem(text: String, isSelected: Boolean, onClick: () -> Unit) {
 
 @Composable
 fun ExportContent(
-    dataModuleViewModel: DataModuleViewModel,
-    isExporting: Boolean
+    isExporting: Boolean,
+    onExport: (dataType: String, range: String) -> Unit
 ) {
     var dataType by remember { mutableStateOf("Sales") }
     var range by remember { mutableStateOf("Today") }
@@ -240,7 +265,7 @@ fun ExportContent(
                             color = TextDark
                         )
                         Text(
-                            text = "Generates a real CSV from your database",
+                            text = "Saves a real CSV to Downloads",
                             fontSize = 12.sp,
                             color = TextGray,
                             textAlign = TextAlign.Center
@@ -249,7 +274,7 @@ fun ExportContent(
                         Spacer(modifier = Modifier.height(24.dp))
 
                         Button(
-                            onClick = { dataModuleViewModel.exportData(dataType, range) },
+                            onClick = { onExport(dataType, range) },
                             enabled = !isExporting,
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = StaffPortalButtonBlue),
@@ -391,7 +416,9 @@ fun LogsContent(dataModuleViewModel: DataModuleViewModel, activityType: String) 
                 }
             }
             is DataLogUiState.Success -> {
-                val filtered = state.logs.filter { it.activityType == activityType || it.activityType == "Generate Report" && activityType == "Export" }
+                val filtered = state.logs.filter {
+                    it.activityType == activityType || (it.activityType == "Generate Report" && activityType == "Export")
+                }
                 if (filtered.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("No $activityType activity yet", color = TextGray)

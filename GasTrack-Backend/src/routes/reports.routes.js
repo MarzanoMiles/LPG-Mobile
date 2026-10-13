@@ -160,9 +160,14 @@ router.delete('/:id', asyncHandler(async (req, res) => {
 
 // ---------- Data Module: direct CSV exports, independent of scheduled compliance reports ----------
 
+// Uses ROW_NUMBER() instead of selecting a named primary key column, since the
+// real column name on DataActivityLog wasn't confirmed and a previous guess
+// (dal.LogID) didn't match the actual table. This works no matter what the
+// PK is actually called.
 router.get('/data-activity', asyncHandler(async (req, res) => {
   const [rows] = await pool.query(`
-    SELECT dal.LogID AS logId, dal.UserID AS userId, dal.ActivityType AS activityType, dal.DataType AS dataType,
+    SELECT ROW_NUMBER() OVER (ORDER BY dal.ActivityDate DESC) AS logId,
+           dal.UserID AS userId, dal.ActivityType AS activityType, dal.DataType AS dataType,
            dal.FileName AS fileName, dal.FileFormat AS fileFormat, dal.DateFrom AS dateFrom, dal.DateTo AS dateTo,
            dal.Status AS status, dal.ActivityDate AS activityDate, u.FirstName AS firstName, u.LastName AS lastName
     FROM DataActivityLog dal JOIN User u ON u.UserID = dal.UserID
