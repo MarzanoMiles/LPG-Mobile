@@ -76,6 +76,8 @@ import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val AR_TAG = "ARScan"
 
@@ -91,6 +93,9 @@ private val ARCORE_LIGHT_MODE = Config.LightEstimationMode.ENVIRONMENTAL_HDR
 private const val MIN_USER_SCALE = 0.5f
 private const val MAX_USER_SCALE = 2.0f
 private const val ASSUMED_PHONE_HEIGHT_M = 1.3f // only used until ARCore has found a real floor
+/** Where the tank's real bottom is, measured from the GLB itself, so resizing pivots on the base. */
+private class ModelMeasure(val scale: Float, val cx: Float, val minY: Float, val cz: Float)
+
 
 @Composable
 fun ARScanScreen(
@@ -208,6 +213,18 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
     val analyzer = remember { HazardAnalyzer(context) }
     DisposableEffect(analyzer) { onDispose { analyzer.close() } }
     val hazardUi by analyzer.state.collectAsState()
+    var measure by remember(tankType) { mutableStateOf<ModelMeasure?>(null) }
+    LaunchedEffect(tankType) {
+        try {
+            val data = withContext(Dispatchers.Default) {
+                GlbParser.parse(context, tankType.assetPath, tankType.realHeightMeters)
+            }
+            measure = ModelMeasure(data.scale, data.centerX, data.minY, data.centerZ)
+            Log.i(AR_TAG, "model measured ${tankType.label}: scale=${data.scale} centerX=${data.centerX} minY=${data.minY} centerZ=${data.centerZ}")
+        } catch (t: Throwable) {
+            Log.w(AR_TAG, "model measure failed, using SceneView centering", t)
+        }
+    }
 
     // Scan timer + pinch coach + gesture highlight
     LaunchedEffect(isPlaced, hasPlane) {
@@ -243,11 +260,21 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
     fun placeAnchor(anchor: Anchor, wasProvisional: Boolean, via: String) {
         try {
             val anchorNode = AnchorNode(engine = engine, anchor = anchor)
-            val modelNode = ModelNode(
-                modelInstance = modelLoader.createModelInstance(assetFileLocation = tankType.assetPath),
-                scaleToUnits = tankType.realHeightMeters,
-                centerOrigin = Position(x = 0f, y = -1f, z = 0f)   // base of the tank at the node origin
-            )
+            val instance = modelLoader.createModelInstance(assetFileLocation = tankType.assetPath)
+            val m = measure
+            val modelNode = if (m != null) {
+                // Our own measurement: bottom-center of the tank exactly at this node's origin
+                ModelNode(modelInstance = instance).also {
+                    it.scale = Scale(m.scale, m.scale, m.scale)
+                    it.position = Position(-m.cx * m.scale, -m.minY * m.scale, -m.cz * m.scale)
+                }
+            } else {
+                ModelNode(
+                    modelInstance = instance,
+                    scaleToUnits = tankType.realHeightMeters,
+                    centerOrigin = Position(x = 0f, y = -1f, z = 0f)
+                )
+            }
             val modelHolder = Node(engine = engine)
             modelHolder.addChildNode(modelNode)
             anchorNode.addChildNode(modelHolder)
@@ -399,7 +426,7 @@ private fun ArPlacementContent(tankType: GasTankType, onScanComplete: () -> Unit
                     // Floor lock: ease the tank's base onto the real floor / the surface it was placed on
                     val node = holder.anchorNode
                     val modelHolder = holder.modelHolder
-                    if (node != null && modelHolder != null &&
+                    if (provisional && node != null && modelHolder != null &&
                         updatedFrame.camera.trackingState == TrackingState.TRACKING &&
                         node.anchor.trackingState == TrackingState.TRACKING
                     ) {

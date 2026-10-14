@@ -27,7 +27,13 @@ class GlbPrimitive(
     val texture: Bitmap?
 )
 
-class GlbData(val primitives: List<GlbPrimitive>)
+class GlbData(
+    val primitives: List<GlbPrimitive>,
+    val scale: Float = 1f,      // makes the model's height equal the real height in meters
+    val centerX: Float = 0f,    // raw model space: center x, bottom y, center z
+    val minY: Float = 0f,
+    val centerZ: Float = 0f
+)
 
 private class Acc(val count: Int, val comps: Int, val type: Int, val offset: Int, val stride: Int, val normalized: Boolean)
 
@@ -244,7 +250,7 @@ object GlbParser {
             "Parsed $assetPath: ${out.size} parts, raw size x=$rawW y=$rawH z=$rawD, " +
                     "scaled to meters: width=${rawW * scale} height=${rawH * scale} depth=${rawD * scale}"
         )
-        return GlbData(out)
+        return GlbData(out, scale, cx, minY, cz)
     }
 }
 
