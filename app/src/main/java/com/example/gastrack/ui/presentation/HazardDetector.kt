@@ -26,8 +26,8 @@ private const val TAG = "HazardDetector"
  */
 class HazardDetector(
     context: Context,
-    modelAsset: String = "model_unquant.tflite",
-    labelsAsset: String = "labels.txt"
+    modelAsset: String = "hazard_models/kitchen.tflite",
+    labelsAsset: String = "hazard_models/kitchen.txt"
 ) : Closeable {
 
     val labels: List<String>
@@ -81,7 +81,7 @@ class HazardDetector(
             outZero = q.zeroPoint
 
             check(labels.size == outCount) {
-                "labels.txt has ${labels.size} entries but the model outputs $outCount classes"
+                "kitchen.txt has ${labels.size} entries but the model outputs $outCount classes"
             }
 
             val bytesPerChannel = if (inputType == DataType.FLOAT32) 4 else 1
@@ -207,18 +207,10 @@ class HazardDetector(
     }
 }
 
-/** One TensorFlow Lite model plus its labels. The first entry is the primary model. */
-private class ModelSpec(val model: String, val labels: String, val threshold: Float)
-
-private val MODEL_SPECS = listOf(
-    ModelSpec("model_unquant.tflite", "labels.txt", 0.75f),
-    // No background class in this model, so it needs a higher confidence before it counts
-    ModelSpec("model_electrical.tflite", "labels_electrical.txt", 0.90f)
-)
-
 /**
- * Owns the detectors, throttling and smoothing. Every analyzed frame runs through all loaded models;
- * each model keeps its own smoother and the results are combined into one UI state.
+ * Owns the detectors, throttling and smoothing. The models are discovered in assets/hazard_models.
+ * Every analyzed frame runs through all loaded models; each keeps its own smoother and the
+ * results are combined into one UI state.
  * - [analyze] with a CameraX ImageProxy: call from the CameraX analysis executor.
  * - [analyze] with an ARCore Frame: hands work to its own background thread.
  * - [canSubmit] / [submit]: used by the EasyAR scenes.
@@ -228,8 +220,8 @@ class HazardAnalyzer(
     private val intervalMs: Long = 300L
 ) : Closeable {
 
-    private class Slot(val spec: ModelSpec, val secondary: Boolean) {
-        val smoother = HazardSmoother(threshold = spec.threshold)
+    private class Slot(val spec: HazardModelSpec) {
+        val smoother = HazardSmoother(threshold = spec.threshold, hazardLookup = { spec.hazardNameFor(it) })
         @Volatile var detector: HazardDetector? = null
         @Volatile var state = HazardUiState(HazardState.SCANNING)
     }
@@ -237,26 +229,32 @@ class HazardAnalyzer(
     private val appContext = context.applicationContext
     private val executor = Executors.newSingleThreadExecutor()
     private val busy = AtomicBoolean(false)
-    private val slots = MODEL_SPECS.mapIndexed { i, spec -> Slot(spec, secondary = i > 0) }
     private val _state = MutableStateFlow(HazardUiState(HazardState.SCANNING))
     val state: StateFlow<HazardUiState> = _state
 
+    @Volatile private var slots: List<Slot> = emptyList()
     @Volatile private var closed = false
     private var lastRunMs = 0L
 
     init {
         executor.execute {
+            val built = HazardModelRegistry.discover(appContext).map { Slot(it) }
             var loaded = 0
-            for (s in slots) {
+            for (s in built) {
                 try {
-                    s.detector = HazardDetector(appContext, s.spec.model, s.spec.labels)
+                    s.detector = HazardDetector(appContext, s.spec.modelAsset, s.spec.labelsAsset)
                     loaded++
                 } catch (t: Throwable) {
-                    Log.e(TAG, "Could not load ${s.spec.model}: ${t.message}", t)
+                    Log.e(TAG, "Could not load ${s.spec.name}: ${t.message}", t)
                 }
             }
+            slots = built
+            Log.i(TAG, "Hazard models ready: " + built.filter { it.detector != null }.joinToString { it.spec.name })
             if (loaded == 0) {
-                _state.value = HazardUiState(HazardState.ERROR, message = "No hazard model could be loaded")
+                _state.value = HazardUiState(
+                    HazardState.ERROR,
+                    message = "No hazard model could be loaded (put .tflite + labels in assets/hazard_models)"
+                )
             }
         }
     }
@@ -342,11 +340,11 @@ class HazardAnalyzer(
             val p: Prediction? = try {
                 work(d)
             } catch (t: Throwable) {
-                Log.e(TAG, "Inference failed for ${s.spec.model}", t)
+                Log.e(TAG, "Inference failed for ${s.spec.name}", t)
                 null
             }
             if (p == null) continue
-            Log.d(TAG, "[${s.spec.model}] pred=${p.label} ${"%.2f".format(p.confidence)}")
+            Log.d(TAG, "[${s.spec.name}] pred=${p.label} ${"%.2f".format(p.confidence)}")
             s.state = s.smoother.update(p)
             any = true
         }
@@ -360,8 +358,8 @@ class HazardAnalyzer(
     /** Any hazard wins (highest confidence); otherwise "no hazard" only when every model agrees. */
     private fun combine(): HazardUiState {
         val effective = slots.filter { it.detector != null }.map { s ->
-            // A secondary model without a background class is often just "unsure": nothing was recognized.
-            if (s.secondary && s.state.state == HazardState.LOW_CONFIDENCE) {
+            // A model without a background class is often just "unsure": that means nothing was recognized.
+            if (s.spec.secondary && s.state.state == HazardState.LOW_CONFIDENCE) {
                 HazardUiState(HazardState.NO_HAZARD)
             } else {
                 s.state

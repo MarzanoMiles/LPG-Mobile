@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "threshold": 0.9,
+  "hazards": {
+    "Sockets": "Electrical socket",
+    "Wires": "Exposed wires"
+  }
+}

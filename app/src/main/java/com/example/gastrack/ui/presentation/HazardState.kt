@@ -16,7 +16,7 @@ data class Prediction(
 )
 
 /**
- * Which model labels count as potential hazards. Keys are matched against labels.txt
+ * Which model labels count as potential hazards. Keys are matched against kitchen.txt
  * (case-insensitive, "_" treated as space). Labels not listed here never raise a warning.
  */
 object HazardCatalog {
@@ -47,7 +47,8 @@ object HazardCatalog {
 class HazardSmoother(
     private val threshold: Float = 0.75f,
     private val enterFrames: Int = 3,
-    private val exitFrames: Int = 4
+    private val exitFrames: Int = 4,
+    private val hazardLookup: (String) -> String? = { HazardCatalog.hazardNameFor(it) }
 ) {
     private enum class Kind { HAZARD, CLEAR, LOW }
 
@@ -60,7 +61,7 @@ class HazardSmoother(
     private var nonHazardStreak = 0
 
     fun update(p: Prediction): HazardUiState {
-        val hazardName = HazardCatalog.hazardNameFor(p.label)
+        val hazardName = hazardLookup(p.label)
         val kind = when {
             p.confidence < threshold -> Kind.LOW
             hazardName != null -> Kind.HAZARD
