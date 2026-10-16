@@ -24,7 +24,10 @@ object HazardCatalog {
         "candle" to "Candle",
         "match box" to "Match box",
         "rice cooker" to "Rice cooker",
-        "cooking oil" to "Cooking oil"
+        "cooking oil" to "Cooking oil",
+        "sockets" to "Electrical socket",
+        "wires" to "Exposed wires"
+        // "computer" is not listed on purpose; add "computer" to "Computer" if you want it to warn too
     )
 
     private fun normalize(label: String) = label.replace('_', ' ').trim().lowercase()

@@ -207,49 +207,70 @@ class HazardDetector(
     }
 }
 
+/** One TensorFlow Lite model plus its labels. The first entry is the primary model. */
+private class ModelSpec(val model: String, val labels: String, val threshold: Float)
+
+private val MODEL_SPECS = listOf(
+    ModelSpec("model_unquant.tflite", "labels.txt", 0.75f),
+    // No background class in this model, so it needs a higher confidence before it counts
+    ModelSpec("model_electrical.tflite", "labels_electrical.txt", 0.90f)
+)
+
 /**
- * Owns the detector, throttling and smoothing.
+ * Owns the detectors, throttling and smoothing. Every analyzed frame runs through all loaded models;
+ * each model keeps its own smoother and the results are combined into one UI state.
  * - [analyze] with a CameraX ImageProxy: call from the CameraX analysis executor.
  * - [analyze] with an ARCore Frame: hands work to its own background thread.
+ * - [canSubmit] / [submit]: used by the EasyAR scenes.
  */
 class HazardAnalyzer(
     context: Context,
     private val intervalMs: Long = 300L
 ) : Closeable {
 
+    private class Slot(val spec: ModelSpec, val secondary: Boolean) {
+        val smoother = HazardSmoother(threshold = spec.threshold)
+        @Volatile var detector: HazardDetector? = null
+        @Volatile var state = HazardUiState(HazardState.SCANNING)
+    }
+
     private val appContext = context.applicationContext
     private val executor = Executors.newSingleThreadExecutor()
     private val busy = AtomicBoolean(false)
-    private val smoother = HazardSmoother()
+    private val slots = MODEL_SPECS.mapIndexed { i, spec -> Slot(spec, secondary = i > 0) }
     private val _state = MutableStateFlow(HazardUiState(HazardState.SCANNING))
     val state: StateFlow<HazardUiState> = _state
 
-    @Volatile private var detector: HazardDetector? = null
     @Volatile private var closed = false
     private var lastRunMs = 0L
 
     init {
         executor.execute {
-            try {
-                detector = HazardDetector(appContext)
-            } catch (t: Throwable) {
-                Log.e(TAG, "Detector init failed", t)
-                _state.value = HazardUiState(HazardState.ERROR, message = t.message ?: "Model failed to load")
+            var loaded = 0
+            for (s in slots) {
+                try {
+                    s.detector = HazardDetector(appContext, s.spec.model, s.spec.labels)
+                    loaded++
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Could not load ${s.spec.model}: ${t.message}", t)
+                }
+            }
+            if (loaded == 0) {
+                _state.value = HazardUiState(HazardState.ERROR, message = "No hazard model could be loaded")
             }
         }
     }
 
+    private fun hasDetector(): Boolean = slots.any { it.detector != null }
+
     /** CameraX path. Always closes [proxy]. */
     fun analyze(proxy: ImageProxy) {
         try {
-            val d = detector
-            if (closed || d == null) return
+            if (closed || !hasDetector()) return
             val now = SystemClock.elapsedRealtime()
             if (now - lastRunMs < intervalMs) return
             lastRunMs = now
-            val p = d.classify(proxy)
-            Log.d(TAG, "pred=${p.label} ${"%.2f".format(p.confidence)}")
-            _state.value = smoother.update(p)
+            runAll { d -> d.classify(proxy) }
         } catch (t: Throwable) {
             Log.e(TAG, "Inference failed", t)
             _state.value = HazardUiState(HazardState.ERROR, message = t.message ?: "Inference failed")
@@ -260,8 +281,7 @@ class HazardAnalyzer(
 
     /** ARCore path. */
     fun analyze(frame: Frame) {
-        if (closed) return
-        val d = detector ?: return
+        if (closed || !hasDetector()) return
         val now = SystemClock.elapsedRealtime()
         if (now - lastRunMs < intervalMs) return
         if (!busy.compareAndSet(false, true)) return  // keep-only-latest: drop if still busy
@@ -280,12 +300,7 @@ class HazardAnalyzer(
         try {
             executor.execute {
                 try {
-                    val p = d.classify(image)
-                    Log.d(TAG, "pred=${p.label} ${"%.2f".format(p.confidence)}")
-                    _state.value = smoother.update(p)
-                } catch (t: Throwable) {
-                    Log.e(TAG, "Inference failed", t)
-                    _state.value = HazardUiState(HazardState.ERROR, message = t.message ?: "Inference failed")
+                    runAll { d -> d.classify(image) }
                 } finally {
                     image.close()
                     busy.set(false)
@@ -296,27 +311,19 @@ class HazardAnalyzer(
         }
     }
 
-    /** EasyAR path: true when a frame may be handed over (detector ready, not busy, throttle elapsed). */
+    /** EasyAR path: true when a frame may be handed over (a detector is ready, not busy, throttle elapsed). */
     fun canSubmit(): Boolean =
-        !closed && detector != null && !busy.get() &&
+        !closed && hasDetector() && !busy.get() &&
                 SystemClock.elapsedRealtime() - lastRunMs >= intervalMs
 
-    /** EasyAR path: runs [work] on the analyzer thread. Call only after [canSubmit] returned true. */
+    /** EasyAR path: [work] runs once per loaded model on the analyzer thread. Call only after [canSubmit]. */
     fun submit(work: (HazardDetector) -> Prediction?) {
-        val d = detector ?: return
-        if (closed || !busy.compareAndSet(false, true)) return
+        if (closed || !hasDetector() || !busy.compareAndSet(false, true)) return
         lastRunMs = SystemClock.elapsedRealtime()
         try {
             executor.execute {
                 try {
-                    val p = work(d)
-                    if (p != null) {
-                        Log.d(TAG, "pred=${p.label} ${"%.2f".format(p.confidence)}")
-                        _state.value = smoother.update(p)
-                    }
-                } catch (t: Throwable) {
-                    Log.e(TAG, "Inference failed", t)
-                    _state.value = HazardUiState(HazardState.ERROR, message = t.message ?: "Inference failed")
+                    runAll(work)
                 } finally {
                     busy.set(false)
                 }
@@ -325,10 +332,60 @@ class HazardAnalyzer(
             busy.set(false)
         }
     }
+
+    private fun runAll(work: (HazardDetector) -> Prediction?) {
+        var attempted = false
+        var any = false
+        for (s in slots) {
+            val d = s.detector ?: continue
+            attempted = true
+            val p: Prediction? = try {
+                work(d)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Inference failed for ${s.spec.model}", t)
+                null
+            }
+            if (p == null) continue
+            Log.d(TAG, "[${s.spec.model}] pred=${p.label} ${"%.2f".format(p.confidence)}")
+            s.state = s.smoother.update(p)
+            any = true
+        }
+        if (any) {
+            _state.value = combine()
+        } else if (attempted) {
+            _state.value = HazardUiState(HazardState.ERROR, message = "Inference failed")
+        }
+    }
+
+    /** Any hazard wins (highest confidence); otherwise "no hazard" only when every model agrees. */
+    private fun combine(): HazardUiState {
+        val effective = slots.filter { it.detector != null }.map { s ->
+            // A secondary model without a background class is often just "unsure": nothing was recognized.
+            if (s.secondary && s.state.state == HazardState.LOW_CONFIDENCE) {
+                HazardUiState(HazardState.NO_HAZARD)
+            } else {
+                s.state
+            }
+        }
+        effective.filter { it.state == HazardState.POTENTIAL_HAZARD }
+            .maxByOrNull { it.confidence }
+            ?.let { return it }
+        if (effective.isNotEmpty() && effective.all { it.state == HazardState.NO_HAZARD }) {
+            return HazardUiState(HazardState.NO_HAZARD)
+        }
+        effective.firstOrNull { it.state == HazardState.LOW_CONFIDENCE }?.let { return it }
+        return HazardUiState(HazardState.SCANNING)
+    }
+
     override fun close() {
         closed = true
         try {
-            executor.execute { detector?.close(); detector = null }
+            executor.execute {
+                for (s in slots) {
+                    s.detector?.close()
+                    s.detector = null
+                }
+            }
         } catch (_: RejectedExecutionException) { }
         executor.shutdown()
     }
